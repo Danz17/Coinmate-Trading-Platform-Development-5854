@@ -10,8 +10,27 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src')
     }
   },
-   build: {
+  build: {
     outDir: 'dist',
-    sourcemap: true
+    sourcemap: true,
+    rollupOptions: {
+      external: [],
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+          router: ['react-router-dom'],
+          motion: ['framer-motion'],
+          charts: ['echarts', 'echarts-for-react'],
+          utils: ['date-fns', 'papaparse', 'jspdf', 'jspdf-autotable']
+        }
+      }
+    }
   },
+  define: {
+    'process.env': {},
+    global: 'globalThis'
+  },
+  optimizeDeps: {
+    include: ['@questlabs/react-sdk', '@supabase/supabase-js']
+  }
 });

@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import SafeIcon from '../../common/SafeIcon';
 import * as FiIcons from 'react-icons/fi';
 import { AppStateManager } from '../../services/AppStateManager';
+import { RoleManager } from '../../services/RoleManager';
 import { ExchangeRateService } from '../../services/ExchangeRateService';
 import { NotificationService } from '../../services/NotificationService';
 
@@ -29,7 +30,7 @@ const Trade = ({ currentUser }) => {
 
   useEffect(() => {
     loadData();
-    
+    loadMemorySettings();
     const unsubscribe = AppStateManager.subscribe(loadData);
     return unsubscribe;
   }, []);
@@ -52,24 +53,99 @@ const Trade = ({ currentUser }) => {
     }
   }, [formData.selectedUser, users]);
 
+  useEffect(() => {
+    // Load remembered user/bank pair when transaction type changes
+    loadMemoryForType(transactionType);
+  }, [transactionType]);
+
   const loadData = () => {
     const allUsers = AppStateManager.getUsers();
     const allPlatforms = AppStateManager.getPlatforms();
     const allBanks = AppStateManager.getBanks();
     const transactions = AppStateManager.getTransactions();
-    
+
     setUsers(allUsers);
     setPlatforms(allPlatforms);
     setBanks(allBanks);
-    
+
     // Calculate last buy/sell rates
     const buyTransactions = transactions.filter(t => t.type === 'BUY');
     const sellTransactions = transactions.filter(t => t.type === 'SELL');
-    
     const lastBuy = buyTransactions.length > 0 ? buyTransactions[0].rate : 0;
     const lastSell = sellTransactions.length > 0 ? sellTransactions[0].rate : 0;
-    
+
     setLastRates({ buy: lastBuy, sell: lastSell });
+  };
+
+  const loadMemorySettings = () => {
+    const savedMemory = localStorage.getItem(`coinmate-trade-memory-${currentUser.id}`);
+    if (savedMemory) {
+      try {
+        const memory = JSON.parse(savedMemory);
+        // Check if memory is still valid (within 24 hours)
+        const now = new Date();
+        const memoryTime = new Date(memory.timestamp || 0);
+        const hoursDiff = (now - memoryTime) / (1000 * 60 * 60);
+
+        if (hoursDiff <= 24) {
+          // Memory is still valid, load for current type
+          loadMemoryForType(transactionType, memory);
+        } else {
+          // Memory expired, clear it
+          localStorage.removeItem(`coinmate-trade-memory-${currentUser.id}`);
+        }
+      } catch (error) {
+        console.error('Error loading trade memory:', error);
+      }
+    }
+  };
+
+  const loadMemoryForType = (type, memory = null) => {
+    if (!memory) {
+      const savedMemory = localStorage.getItem(`coinmate-trade-memory-${currentUser.id}`);
+      if (savedMemory) {
+        try {
+          memory = JSON.parse(savedMemory);
+        } catch (error) {
+          return;
+        }
+      } else {
+        return;
+      }
+    }
+
+    const typeKey = type.toLowerCase();
+    if (memory[typeKey]) {
+      setFormData(prev => ({
+        ...prev,
+        selectedUser: memory[typeKey].selectedUser || '',
+        userBank: memory[typeKey].userBank || ''
+      }));
+    }
+  };
+
+  const saveMemorySettings = () => {
+    if (!formData.selectedUser || !formData.userBank) return;
+
+    const savedMemory = localStorage.getItem(`coinmate-trade-memory-${currentUser.id}`);
+    let memory = {};
+
+    if (savedMemory) {
+      try {
+        memory = JSON.parse(savedMemory);
+      } catch (error) {
+        memory = {};
+      }
+    }
+
+    const typeKey = transactionType.toLowerCase();
+    memory[typeKey] = {
+      selectedUser: formData.selectedUser,
+      userBank: formData.userBank
+    };
+    memory.timestamp = new Date().toISOString();
+
+    localStorage.setItem(`coinmate-trade-memory-${currentUser.id}`, JSON.stringify(memory));
   };
 
   const handleInputChange = (field, value) => {
@@ -78,32 +154,49 @@ const Trade = ({ currentUser }) => {
 
   const handleUSDTBlur = () => {
     if (isCalculating || !formData.usdtAmount || !formData.rate) return;
-    
+
     setIsCalculating(true);
     const usdtAmount = parseFloat(formData.usdtAmount);
     const rate = parseFloat(formData.rate);
-    
+
     if (!isNaN(usdtAmount) && !isNaN(rate)) {
       const phpAmount = (usdtAmount * rate).toFixed(2);
       setFormData(prev => ({ ...prev, phpAmount }));
     }
-    
+
     setTimeout(() => setIsCalculating(false), 100);
   };
 
   const handlePHPBlur = () => {
     if (isCalculating || !formData.phpAmount || !formData.rate) return;
-    
+
     setIsCalculating(true);
     const phpAmount = parseFloat(formData.phpAmount);
     const rate = parseFloat(formData.rate);
-    
+
     if (!isNaN(phpAmount) && !isNaN(rate) && rate > 0) {
       const usdtAmount = (phpAmount / rate).toFixed(2);
       setFormData(prev => ({ ...prev, usdtAmount }));
     }
-    
+
     setTimeout(() => setIsCalculating(false), 100);
+  };
+
+  const getAvailableUsers = () => {
+    const featureFlags = RoleManager.getFeatureFlags(currentUser.role);
+    
+    if (featureFlags.canTradeForOthers) {
+      // Can trade for all users or assigned users
+      if (RoleManager.hasPermission(currentUser.role, 'trade_all_users')) {
+        return users; // All users
+      } else if (RoleManager.hasPermission(currentUser.role, 'trade_assigned_users')) {
+        // For now, return all users. In a real app, you'd filter by assigned users
+        return users;
+      }
+    }
+    
+    // Can only trade for own account
+    return users.filter(u => u.id === currentUser.id);
   };
 
   const getSelectedUserBanks = () => {
@@ -124,12 +217,20 @@ const Trade = ({ currentUser }) => {
       alert('Please fill in all required fields');
       return;
     }
-    
+
+    // Check permissions
+    const selectedUser = users.find(u => u.name === formData.selectedUser);
+    if (selectedUser.id !== currentUser.id) {
+      const featureFlags = RoleManager.getFeatureFlags(currentUser.role);
+      if (!featureFlags.canTradeForOthers) {
+        alert('You do not have permission to trade for other users');
+        return;
+      }
+    }
+
     setIsSubmitting(true);
-    
+
     try {
-      const selectedUser = users.find(u => u.name === formData.selectedUser);
-      
       const transaction = {
         type: transactionType,
         user_id: selectedUser.id,
@@ -143,13 +244,16 @@ const Trade = ({ currentUser }) => {
         note: formData.note,
         selectedUser: formData.selectedUser
       };
-      
+
       const newTransaction = AppStateManager.addTransaction(transaction);
-      
+
+      // Save memory settings
+      saveMemorySettings();
+
       // Send notification
       await NotificationService.notifyTransaction(newTransaction);
-      
-      // Reset form
+
+      // Reset form (but keep rate)
       setFormData({
         selectedUser: '',
         rate: ExchangeRateService.getCurrentRate().rate.toFixed(2),
@@ -160,9 +264,8 @@ const Trade = ({ currentUser }) => {
         transferFee: '',
         note: ''
       });
-      
+
       alert(`${transactionType} transaction completed successfully!`);
-      
     } catch (error) {
       console.error('Error submitting transaction:', error);
       alert('Error submitting transaction. Please try again.');
@@ -170,6 +273,8 @@ const Trade = ({ currentUser }) => {
       setIsSubmitting(false);
     }
   };
+
+  const availableUsers = getAvailableUsers();
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -182,6 +287,15 @@ const Trade = ({ currentUser }) => {
           Execute buy/sell transactions with real-time calculations
         </p>
       </div>
+
+      {/* Permission Info */}
+      {availableUsers.length === 1 && availableUsers[0].id === currentUser.id && (
+        <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
+          <p className="text-sm text-blue-700 dark:text-blue-300">
+            <strong>Trading Permissions:</strong> You can only trade for your own account.
+          </p>
+        </div>
+      )}
 
       {/* Transaction Type Toggle */}
       <motion.div
@@ -222,24 +336,45 @@ const Trade = ({ currentUser }) => {
         className="card p-6"
       >
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* User Selection */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              User Account *
-            </label>
-            <select
-              value={formData.selectedUser}
-              onChange={(e) => handleInputChange('selectedUser', e.target.value)}
-              className="select-field"
-              required
-            >
-              <option value="">Select user account</option>
-              {users.map((user) => (
-                <option key={user.id} value={user.name}>
-                  {user.name} ({user.role.replace('_', ' ')})
-                </option>
-              ))}
-            </select>
+          {/* User and Bank Selection - Side by Side */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                User Account *
+              </label>
+              <select
+                value={formData.selectedUser}
+                onChange={(e) => handleInputChange('selectedUser', e.target.value)}
+                className="select-field"
+                required
+              >
+                <option value="">Select user account</option>
+                {availableUsers.map((user) => (
+                  <option key={user.id} value={user.name}>
+                    {user.name} ({RoleManager.getRole(user.role)?.name})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                User Bank Account *
+              </label>
+              <select
+                value={formData.userBank}
+                onChange={(e) => handleInputChange('userBank', e.target.value)}
+                className="select-field"
+                required
+                disabled={!formData.selectedUser}
+              >
+                <option value="">Select bank account</option>
+                {getSelectedUserBanks().map((bank) => (
+                  <option key={bank} value={bank}>
+                    {bank}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {/* Rate and Last Rates */}
@@ -279,7 +414,6 @@ const Trade = ({ currentUser }) => {
                 required
               />
             </div>
-            
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 PHP Amount *
@@ -297,28 +431,8 @@ const Trade = ({ currentUser }) => {
             </div>
           </div>
 
-          {/* Bank and Platform */}
+          {/* Platform and Fee */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                User Bank Account *
-              </label>
-              <select
-                value={formData.userBank}
-                onChange={(e) => handleInputChange('userBank', e.target.value)}
-                className="select-field"
-                required
-                disabled={!formData.selectedUser}
-              >
-                <option value="">Select bank account</option>
-                {getSelectedUserBanks().map((bank) => (
-                  <option key={bank} value={bank}>
-                    {bank}
-                  </option>
-                ))}
-              </select>
-            </div>
-            
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Trading Platform *
@@ -337,10 +451,6 @@ const Trade = ({ currentUser }) => {
                 ))}
               </select>
             </div>
-          </div>
-
-          {/* Fee and Note */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Transfer Fee (Optional)
@@ -354,19 +464,20 @@ const Trade = ({ currentUser }) => {
                 placeholder="Enter fee amount"
               />
             </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Note
-              </label>
-              <input
-                type="text"
-                value={formData.note}
-                onChange={(e) => handleInputChange('note', e.target.value)}
-                className="input-field"
-                placeholder="Transaction description"
-              />
-            </div>
+          </div>
+
+          {/* Note */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Note
+            </label>
+            <input
+              type="text"
+              value={formData.note}
+              onChange={(e) => handleInputChange('note', e.target.value)}
+              className="input-field"
+              placeholder="Transaction description"
+            />
           </div>
 
           {/* Submit Button */}
