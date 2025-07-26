@@ -18,7 +18,8 @@ class RoleManagerClass {
           'execute_eod',
           'view_hr_logs',
           'export_data',
-          'manage_config'
+          'manage_config',
+          'advanced_analytics'
         ],
         description: 'Full system access with all privileges',
         color: 'text-red-600 bg-red-50 border-red-200'
@@ -38,7 +39,8 @@ class RoleManagerClass {
           'view_hr_logs',
           'export_data',
           'trade_all_users',
-          'internal_transfers'
+          'internal_transfers',
+          'advanced_analytics'
         ],
         description: 'Administrative access with user and transaction management',
         color: 'text-purple-600 bg-purple-50 border-purple-200'
@@ -54,7 +56,8 @@ class RoleManagerClass {
           'export_data',
           'trade_assigned_users',
           'internal_transfers',
-          'view_analytics'
+          'view_analytics',
+          'advanced_analytics'
         ],
         description: 'Supervisory access with limited administrative functions',
         color: 'text-blue-600 bg-blue-50 border-blue-200'
@@ -105,6 +108,7 @@ class RoleManagerClass {
       ],
       analytics: [
         'view_analytics',
+        'advanced_analytics',
         'export_data',
         'export_own_data'
       ]
@@ -148,10 +152,10 @@ class RoleManagerClass {
   hasPermission(userRole, permission) {
     const role = this.roles[userRole];
     if (!role) return false;
-    
+
     // Super admin has all permissions
     if (role.permissions.includes('all_access')) return true;
-    
+
     return role.permissions.includes(permission);
   }
 
@@ -208,54 +212,15 @@ class RoleManagerClass {
   // Get role-based menu items
   getMenuItems(userRole) {
     const items = [
-      {
-        id: 'dashboard',
-        label: 'Dashboard',
-        icon: 'FiHome',
-        permission: 'view_own_data'
-      },
-      {
-        id: 'trade',
-        label: 'Trade',
-        icon: 'FiTrendingUp',
-        permission: 'trade_own_account'
-      },
-      {
-        id: 'transactions',
-        label: 'Transactions',
-        icon: 'FiList',
-        permission: 'view_own_data'
-      },
-      {
-        id: 'tracker',
-        label: 'Tracker',
-        icon: 'FiBarChart3',
-        permission: 'view_analytics'
-      },
-      {
-        id: 'eod',
-        label: 'End of Day',
-        icon: 'FiSun',
-        permission: 'execute_eod'
-      },
-      {
-        id: 'hr',
-        label: 'HR Tracking',
-        icon: 'FiClock',
-        permission: 'view_hr_logs'
-      },
-      {
-        id: 'getstarted',
-        label: 'Get Started',
-        icon: 'FiPlay',
-        permission: 'view_own_data'
-      },
-      {
-        id: 'admin',
-        label: 'Administration',
-        icon: 'FiSettings',
-        permission: 'manage_users'
-      }
+      { id: 'dashboard', label: 'Dashboard', icon: 'FiHome', permission: 'view_own_data' },
+      { id: 'trade', label: 'Trade', icon: 'FiTrendingUp', permission: 'trade_own_account' },
+      { id: 'transactions', label: 'Transactions', icon: 'FiList', permission: 'view_own_data' },
+      { id: 'tracker', label: 'Tracker', icon: 'FiBarChart3', permission: 'view_analytics' },
+      { id: 'advanced-analytics', label: 'Advanced Analytics', icon: 'FiActivity', permission: 'advanced_analytics' },
+      { id: 'eod', label: 'End of Day', icon: 'FiSun', permission: 'execute_eod' },
+      { id: 'hr', label: 'HR Tracking', icon: 'FiClock', permission: 'view_hr_logs' },
+      { id: 'getstarted', label: 'Get Started', icon: 'FiPlay', permission: 'view_own_data' },
+      { id: 'admin', label: 'Administration', icon: 'FiSettings', permission: 'manage_users' }
     ];
 
     return items.filter(item => this.hasPermission(userRole, item.permission));
@@ -266,11 +231,11 @@ class RoleManagerClass {
     if (this.hasPermission(userRole, 'view_all_data')) {
       return 'full';
     }
-    
+
     if (targetUserId === currentUserId && this.hasPermission(userRole, 'view_own_data')) {
       return 'own';
     }
-    
+
     return 'none';
   }
 
@@ -278,7 +243,7 @@ class RoleManagerClass {
   getRoleBadge(roleKey) {
     const role = this.roles[roleKey];
     if (!role) return { label: 'Unknown', color: 'text-gray-600 bg-gray-50 border-gray-200' };
-    
+
     return {
       label: role.name,
       color: role.color,
@@ -301,8 +266,30 @@ class RoleManagerClass {
       canInternalTransfer: this.hasPermission(userRole, 'internal_transfers'),
       canExportData: this.hasPermission(userRole, 'export_data'),
       canManageConfig: this.hasPermission(userRole, 'manage_config'),
-      canTradeForOthers: this.hasAnyPermission(userRole, ['trade_all_users', 'trade_assigned_users'])
+      canTradeForOthers: this.hasAnyPermission(userRole, ['trade_all_users', 'trade_assigned_users']),
+      canViewAdvancedAnalytics: this.hasPermission(userRole, 'advanced_analytics')
     };
+  }
+
+  // Update role permissions
+  async updateRolePermissions(editedPermissions, updatedBy) {
+    try {
+      // For each role, update the permissions in our local state
+      Object.entries(editedPermissions).forEach(([roleKey, permissions]) => {
+        if (roleKey !== 'super_admin' && this.roles[roleKey]) {
+          this.roles[roleKey].permissions = permissions;
+        }
+      });
+
+      // Log the permission change
+      console.log(`Role permissions updated by ${updatedBy}`);
+
+      // Return a resolved promise after updating the local state
+      return Promise.resolve(true);
+    } catch (error) {
+      console.error('Error updating role permissions:', error);
+      return Promise.reject(error);
+    }
   }
 }
 

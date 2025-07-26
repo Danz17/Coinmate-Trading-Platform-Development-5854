@@ -4,29 +4,22 @@ import SafeIcon from '../../common/SafeIcon';
 import * as FiIcons from 'react-icons/fi';
 import { AppStateManager } from '../../services/AppStateManager';
 import { RoleManager } from '../../services/RoleManager';
-import { NotificationService } from '../../services/NotificationService';
-import { ExchangeRateService } from '../../services/ExchangeRateService';
-import RoleManagement from '../admin/RoleManagement';
+import { toastManager } from '../common/Toast';
+import WhiteLabelingSettings from './WhiteLabelingSettings';
 
-const { FiUsers, FiDatabase, FiSettings, FiPlus, FiTrash2, FiEdit3, FiX, FiSave, FiCheck, FiDollarSign, FiShield } = FiIcons;
+const { FiUsers, FiDatabase, FiPlus, FiTrash2, FiEdit3, FiX, FiSave, FiCheck, FiDollarSign, FiGlobe } = FiIcons;
 
 const Administration = ({ currentUser }) => {
   const [activeTab, setActiveTab] = useState('users');
   const [users, setUsers] = useState([]);
   const [platforms, setPlatforms] = useState([]);
   const [banks, setBanks] = useState([]);
-  const [balances, setBalances] = useState({});
-  const [config, setConfig] = useState({});
   const [hasChanges, setHasChanges] = useState(false);
-  const [newUser, setNewUser] = useState({
-    name: '',
-    email: '',
-    role: 'analyst',
-    assignedBanks: []
-  });
+  const [newUser, setNewUser] = useState({ name: '', email: '', role: 'analyst', assignedBanks: [] });
   const [newPlatform, setNewPlatform] = useState('');
   const [newBank, setNewBank] = useState('');
   const [editingUserId, setEditingUserId] = useState(null);
+  const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [showAdjustBalanceModal, setShowAdjustBalanceModal] = useState(false);
   const [balanceAdjustment, setBalanceAdjustment] = useState({
     userId: null,
@@ -43,116 +36,201 @@ const Administration = ({ currentUser }) => {
     reason: ''
   });
   const [showUsdtAdjustModal, setShowUsdtAdjustModal] = useState(false);
-  const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [showDeletePlatformModal, setShowDeletePlatformModal] = useState(false);
+  const [platformToDelete, setPlatformToDelete] = useState(null);
+  const [showDeleteBankModal, setShowDeleteBankModal] = useState(false);
+  const [bankToDelete, setBankToDelete] = useState(null);
 
   useEffect(() => {
     loadData();
     const unsubscribe = AppStateManager.subscribe(loadData);
-    return unsubscribe;
+
+    // Listen for custom events to set the active tab
+    const handleSetAdminTab = (event) => {
+      if (event.detail && typeof event.detail === 'string') {
+        setActiveTab(event.detail);
+      }
+    };
+    document.addEventListener('set-admin-tab', handleSetAdminTab);
+
+    // Check if the URL hash contains a tab reference
+    const hash = window.location.hash;
+    if (hash.includes('#admin:')) {
+      const tab = hash.split(':')[1];
+      if (tab) {
+        setActiveTab(tab);
+      }
+    }
+
+    return () => {
+      unsubscribe();
+      document.removeEventListener('set-admin-tab', handleSetAdminTab);
+    };
   }, []);
 
   const loadData = () => {
     const allUsers = AppStateManager.getUsers();
     const allPlatforms = AppStateManager.getPlatforms();
     const allBanks = AppStateManager.getBanks();
-    const allBalances = AppStateManager.getBalances();
-    const appConfig = AppStateManager.getConfig();
+    const balances = AppStateManager.getBalances();
 
     setUsers(allUsers);
-    setPlatforms(allPlatforms);
+
+    // Add balances to platforms data
+    const platformsWithBalance = allPlatforms.map(platform => ({
+      name: platform,
+      balance: balances.companyUSDT[platform] || 0
+    }));
+
+    setPlatforms(platformsWithBalance);
     setBanks(allBanks);
-    setBalances(allBalances);
-    setConfig(appConfig);
   };
 
   const featureFlags = RoleManager.getFeatureFlags(currentUser.role);
   const manageableRoles = RoleManager.getManageableRoles(currentUser.role);
 
-  const handleAddUser = () => {
+  const handleAddUser = async () => {
     if (!newUser.name || !newUser.email) {
-      alert('Please fill in all required fields');
+      toastManager.error('Please fill in all required fields');
       return;
     }
 
     // Validate role assignment
     const validation = RoleManager.validateRoleAssignment(currentUser.role, newUser.role);
     if (!validation.valid) {
-      alert(validation.error);
+      toastManager.error(validation.error);
       return;
     }
 
-    AppStateManager.addUser(newUser);
-    setNewUser({
-      name: '',
-      email: '',
-      role: 'analyst',
-      assignedBanks: []
-    });
-    setShowAddUserModal(false);
+    try {
+      await AppStateManager.addUser(newUser);
+      setNewUser({ name: '', email: '', role: 'analyst', assignedBanks: [] });
+      setShowAddUserModal(false);
+      toastManager.success('User added successfully');
+    } catch (error) {
+      toastManager.error('Failed to add user');
+    }
   };
 
-  const handleAddPlatform = () => {
+  const handleAddPlatform = async () => {
     if (!newPlatform.trim()) return;
-    AppStateManager.addPlatform(newPlatform);
-    setNewPlatform('');
-    setHasChanges(true);
+
+    // Check for duplicate platform
+    if (platforms.some(p => p.name.toLowerCase() === newPlatform.toLowerCase())) {
+      toastManager.error(`Platform "${newPlatform}" already exists`);
+      return;
+    }
+
+    try {
+      await AppStateManager.addPlatform(newPlatform);
+      setNewPlatform('');
+      setHasChanges(true);
+      toastManager.success('Platform added successfully');
+    } catch (error) {
+      toastManager.error('Failed to add platform');
+    }
   };
 
-  const handleAddBank = () => {
+  const handleAddBank = async () => {
     if (!newBank.trim()) return;
-    AppStateManager.addBank(newBank);
-    setNewBank('');
-    setHasChanges(true);
+
+    // Check for duplicate bank
+    if (banks.some(b => b.toLowerCase() === newBank.toLowerCase())) {
+      toastManager.error(`Bank "${newBank}" already exists`);
+      return;
+    }
+
+    try {
+      await AppStateManager.addBank(newBank);
+      setNewBank('');
+      setHasChanges(true);
+      toastManager.success('Bank added successfully');
+    } catch (error) {
+      toastManager.error('Failed to add bank');
+    }
+  };
+
+  const handleDeletePlatform = (platform) => {
+    setPlatformToDelete(platform);
+    setShowDeletePlatformModal(true);
+  };
+
+  const confirmDeletePlatform = async () => {
+    if (!platformToDelete) return;
+
+    try {
+      await AppStateManager.deletePlatform(platformToDelete.name);
+      toastManager.success(`Platform "${platformToDelete.name}" deleted successfully`);
+      setShowDeletePlatformModal(false);
+      setPlatformToDelete(null);
+    } catch (error) {
+      toastManager.error(`Failed to delete platform: ${error.message}`);
+    }
+  };
+
+  const handleDeleteBank = (bank) => {
+    setBankToDelete(bank);
+    setShowDeleteBankModal(true);
+  };
+
+  const confirmDeleteBank = async () => {
+    if (!bankToDelete) return;
+
+    try {
+      await AppStateManager.deleteBank(bankToDelete);
+      toastManager.success(`Bank "${bankToDelete}" deleted successfully`);
+      setShowDeleteBankModal(false);
+      setBankToDelete(null);
+    } catch (error) {
+      toastManager.error(`Failed to delete bank: ${error.message}`);
+    }
   };
 
   const handleEditUser = (userId) => {
     setEditingUserId(userId);
   };
 
-  const handleSaveUser = (user) => {
+  const handleSaveUser = async (user) => {
     // Validate role change if role was modified
     const originalUser = users.find(u => u.id === user.id);
     if (originalUser.role !== user.role) {
       const validation = RoleManager.validateRoleAssignment(currentUser.role, user.role);
       if (!validation.valid) {
-        alert(validation.error);
+        toastManager.error(validation.error);
         return;
       }
     }
 
-    AppStateManager.updateUser(user.id, user);
-    setEditingUserId(null);
-    setHasChanges(true);
+    try {
+      await AppStateManager.updateUser(user.id, user);
+      setEditingUserId(null);
+      setHasChanges(true);
+      toastManager.success('User updated successfully');
+    } catch (error) {
+      toastManager.error('Failed to update user');
+    }
   };
 
-  const handleDeleteUser = (userId) => {
+  const handleDeleteUser = async (userId) => {
     const user = users.find(u => u.id === userId);
     if (!RoleManager.canManageRole(currentUser.role, user.role)) {
-      alert('You cannot delete this user due to insufficient permissions');
+      toastManager.error('You cannot delete this user due to insufficient permissions');
       return;
     }
 
     if (window.confirm('Are you sure you want to delete this user?')) {
-      AppStateManager.deleteUser(userId);
-      setHasChanges(true);
+      try {
+        await AppStateManager.deleteUser(userId);
+        setHasChanges(true);
+        toastManager.success('User deleted successfully');
+      } catch (error) {
+        toastManager.error('Failed to delete user');
+      }
     }
   };
 
-  const handleConfigChange = (key, value) => {
-    setConfig({ ...config, [key]: value });
-    setHasChanges(true);
-  };
-
-  const handleSaveConfig = () => {
-    AppStateManager.updateConfig(config);
-    NotificationService.updateConfig(config);
-    ExchangeRateService.setUpdateInterval(config.exchangeRateUpdateInterval);
-    setHasChanges(false);
-    alert('Configuration saved successfully!');
-  };
-
   const openAdjustBalanceModal = (user, bank) => {
-    const currentBalance = user.bankBalances[bank] || 0;
+    const currentBalance = user.bank_balances[bank] || 0;
     setBalanceAdjustment({
       userId: user.id,
       userName: user.name,
@@ -164,28 +242,35 @@ const Administration = ({ currentUser }) => {
     setShowAdjustBalanceModal(true);
   };
 
-  const handleAdjustBalance = () => {
+  const handleAdjustBalance = async () => {
     const { userId, bank, newBalance, reason } = balanceAdjustment;
+
     if (!reason.trim()) {
-      alert('Please provide a reason for the adjustment');
+      toastManager.error('Please provide a reason for the adjustment');
       return;
     }
 
-    AppStateManager.adjustUserBalance(
-      userId,
-      bank,
-      parseFloat(newBalance),
-      reason,
-      currentUser.name
-    );
-    setShowAdjustBalanceModal(false);
-    setHasChanges(true);
+    try {
+      await AppStateManager.adjustUserBalance(
+        userId,
+        bank,
+        parseFloat(newBalance),
+        reason,
+        currentUser.name
+      );
+      setShowAdjustBalanceModal(false);
+      setHasChanges(true);
+      toastManager.success('Balance adjusted successfully');
+    } catch (error) {
+      toastManager.error('Failed to adjust balance');
+    }
   };
 
   const openUsdtAdjustModal = (platform) => {
-    const currentBalance = balances.companyUSDT[platform] || 0;
+    const balances = AppStateManager.getBalances();
+    const currentBalance = balances.companyUSDT[platform.name] || 0;
     setUsdtAdjustment({
-      platform,
+      platform: platform.name,
       currentBalance,
       newBalance: currentBalance,
       reason: ''
@@ -193,39 +278,45 @@ const Administration = ({ currentUser }) => {
     setShowUsdtAdjustModal(true);
   };
 
-  const handleAdjustUSDT = () => {
+  const handleAdjustUSDT = async () => {
     const { platform, newBalance, reason } = usdtAdjustment;
+
     if (!reason.trim()) {
-      alert('Please provide a reason for the adjustment');
+      toastManager.error('Please provide a reason for the adjustment');
       return;
     }
 
-    AppStateManager.adjustCompanyUSDTBalance(
-      platform,
-      parseFloat(newBalance),
-      reason,
-      currentUser.name
-    );
-    setShowUsdtAdjustModal(false);
-    setHasChanges(true);
+    try {
+      await AppStateManager.adjustCompanyUSDTBalance(
+        platform,
+        parseFloat(newBalance),
+        reason,
+        currentUser.name
+      );
+      setShowUsdtAdjustModal(false);
+      setHasChanges(true);
+      toastManager.success('USDT balance adjusted successfully');
+    } catch (error) {
+      toastManager.error('Failed to adjust USDT balance');
+    }
   };
 
-  const handleAssignBank = (userId, bank) => {
+  const handleAssignBank = async (userId, bank) => {
     const user = users.find(u => u.id === userId);
     if (!user) return;
 
-    const currentlyAssigned = user.assignedBanks?.includes(bank) || false;
+    const currentlyAssigned = user.assigned_banks?.includes(bank) || false;
 
     // Check if user can unassign this bank (only if balance is 0)
     if (currentlyAssigned) {
-      const balance = user.bankBalances?.[bank] || 0;
+      const balance = user.bank_balances?.[bank] || 0;
       if (balance !== 0) {
-        alert('Bank balance is not 0. Please internal transfer first.');
+        toastManager.error('Bank balance is not 0. Please adjust balance first.');
         return;
       }
     }
 
-    let updatedBanks = [...(user.assignedBanks || [])];
+    let updatedBanks = [...(user.assigned_banks || [])];
     if (currentlyAssigned) {
       // Remove bank
       updatedBanks = updatedBanks.filter(b => b !== bank);
@@ -234,8 +325,13 @@ const Administration = ({ currentUser }) => {
       updatedBanks.push(bank);
     }
 
-    AppStateManager.updateUser(userId, { assignedBanks: updatedBanks });
-    setHasChanges(true);
+    try {
+      await AppStateManager.updateUser(userId, { assignedBanks: updatedBanks });
+      setHasChanges(true);
+      toastManager.success(`Bank ${currentlyAssigned ? 'unassigned' : 'assigned'} successfully`);
+    } catch (error) {
+      toastManager.error('Failed to update bank assignment');
+    }
   };
 
   // User Management Tab
@@ -272,9 +368,13 @@ const Administration = ({ currentUser }) => {
                     <input
                       type="text"
                       value={user.name}
-                      onChange={(e) => setUsers(
-                        users.map(u => u.id === user.id ? { ...u, name: e.target.value } : u)
-                      )}
+                      onChange={(e) =>
+                        setUsers(
+                          users.map(u =>
+                            u.id === user.id ? { ...u, name: e.target.value } : u
+                          )
+                        )
+                      }
                       className="input-field"
                     />
                   </div>
@@ -285,9 +385,13 @@ const Administration = ({ currentUser }) => {
                     <input
                       type="email"
                       value={user.email}
-                      onChange={(e) => setUsers(
-                        users.map(u => u.id === user.id ? { ...u, email: e.target.value } : u)
-                      )}
+                      onChange={(e) =>
+                        setUsers(
+                          users.map(u =>
+                            u.id === user.id ? { ...u, email: e.target.value } : u
+                          )
+                        )
+                      }
                       className="input-field"
                     />
                   </div>
@@ -298,9 +402,13 @@ const Administration = ({ currentUser }) => {
                   </label>
                   <select
                     value={user.role}
-                    onChange={(e) => setUsers(
-                      users.map(u => u.id === user.id ? { ...u, role: e.target.value } : u)
-                    )}
+                    onChange={(e) =>
+                      setUsers(
+                        users.map(u =>
+                          u.id === user.id ? { ...u, role: e.target.value } : u
+                        )
+                      )
+                    }
                     className="select-field"
                   >
                     <option value={user.role}>Keep Current: {RoleManager.getRole(user.role)?.name}</option>
@@ -370,9 +478,10 @@ const Administration = ({ currentUser }) => {
                   </h5>
                   <div className="flex flex-wrap gap-2">
                     {banks.map((bank) => {
-                      const isAssigned = user.assignedBanks?.includes(bank) || false;
-                      const balance = user.bankBalances?.[bank] || 0;
+                      const isAssigned = user.assigned_banks?.includes(bank) || false;
+                      const balance = user.bank_balances?.[bank] || 0;
                       const canUnassign = balance === 0;
+
                       return (
                         <button
                           key={bank}
@@ -383,7 +492,7 @@ const Administration = ({ currentUser }) => {
                               : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
                           } ${isAssigned && !canUnassign ? 'opacity-50 cursor-not-allowed' : ''}`}
                           disabled={!featureFlags.canEditUsers || (isAssigned && !canUnassign)}
-                          title={isAssigned && !canUnassign ? 'Bank balance is not 0. Please internal transfer first.' : ''}
+                          title={isAssigned && !canUnassign ? 'Bank balance is not 0. Please adjust balance first.' : ''}
                         >
                           {bank}
                           {isAssigned && (
@@ -400,15 +509,12 @@ const Administration = ({ currentUser }) => {
                     Bank Balances
                   </h5>
                   <div className="space-y-2">
-                    {user.assignedBanks?.map((bank) => (
-                      <div
-                        key={bank}
-                        className="flex justify-between items-center p-2 bg-gray-50 dark:bg-gray-800 rounded"
-                      >
+                    {user.assigned_banks?.map((bank) => (
+                      <div key={bank} className="flex justify-between items-center p-2 bg-gray-50 dark:bg-gray-800 rounded">
                         <span>{bank}</span>
                         <div className="flex items-center space-x-2">
                           <span className="font-medium">
-                            ₱{(user.bankBalances?.[bank] || 0).toFixed(2)}
+                            ₱{(user.bank_balances?.[bank] || 0).toFixed(2)}
                           </span>
                           {featureFlags.canAdjustBalances && (
                             <button
@@ -440,7 +546,6 @@ const Administration = ({ currentUser }) => {
           Platform Management
         </h3>
 
-        {/* Add Platform */}
         {featureFlags.canManagePlatforms && (
           <div className="card p-4 mb-6">
             <h4 className="font-medium text-gray-900 dark:text-white mb-3">
@@ -466,28 +571,44 @@ const Administration = ({ currentUser }) => {
           </div>
         )}
 
-        {/* Platform List */}
         <div className="card p-4">
           <h4 className="font-medium text-gray-900 dark:text-white mb-3">
             Existing Platforms
           </h4>
           <div className="space-y-2">
             {platforms.map((platform) => (
-              <div
-                key={platform}
-                className="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-800 rounded-lg"
-              >
-                <span className="font-medium">{platform}</span>
-                {featureFlags.canAdjustBalances && (
-                  <button
-                    onClick={() => openUsdtAdjustModal(platform)}
-                    className="btn-secondary text-sm"
-                  >
-                    Adjust Balance
-                  </button>
-                )}
+              <div key={platform.name} className="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                <div>
+                  <span className="font-medium">{platform.name}</span>
+                  <div className="text-sm text-gray-500 dark:text-gray-400">
+                    Balance: {platform.balance.toFixed(2)} USDT
+                  </div>
+                </div>
+                <div className="flex space-x-2">
+                  {featureFlags.canAdjustBalances && (
+                    <button
+                      onClick={() => openUsdtAdjustModal(platform)}
+                      className="btn-secondary text-sm"
+                    >
+                      Adjust Balance
+                    </button>
+                  )}
+                  {featureFlags.canManagePlatforms && platform.balance === 0 && (
+                    <button
+                      onClick={() => handleDeletePlatform(platform)}
+                      className="btn-danger text-sm"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
+            {platforms.length === 0 && (
+              <div className="text-center py-4">
+                <p className="text-gray-500 dark:text-gray-400">No platforms found</p>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -497,7 +618,6 @@ const Administration = ({ currentUser }) => {
           Bank Management
         </h3>
 
-        {/* Add Bank */}
         {featureFlags.canManageBanks && (
           <div className="card p-4 mb-6">
             <h4 className="font-medium text-gray-900 dark:text-white mb-3">
@@ -523,338 +643,35 @@ const Administration = ({ currentUser }) => {
           </div>
         )}
 
-        {/* Bank List */}
         <div className="card p-4">
           <h4 className="font-medium text-gray-900 dark:text-white mb-3">
             Existing Banks
           </h4>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-            {banks.map((bank) => (
-              <div
-                key={bank}
-                className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg text-center"
-              >
-                {bank}
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+            {banks.map((bank) => {
+              // Check if any user has a non-zero balance for this bank
+              const isInUse = users.some(user => (user.bank_balances?.[bank] || 0) > 0);
 
-  // Balance Management Tab
-  const renderBalancesTab = () => (
-    <div className="space-y-6">
-      <div>
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-          Company USDT Holdings
-        </h3>
-        <div className="card p-4">
-          <div className="space-y-3">
-            {platforms.map((platform) => {
-              const balance = balances.companyUSDT[platform] || 0;
               return (
-                <div
-                  key={platform}
-                  className="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-800 rounded-lg"
-                >
-                  <div>
-                    <span className="font-medium">{platform}</span>
-                    <span className="text-sm text-gray-500 dark:text-gray-400 ml-2">
-                      Platform
-                    </span>
-                  </div>
-                  <div className="flex items-center space-x-3">
-                    <span className="font-semibold">
-                      {balance.toFixed(2)} USDT
-                    </span>
-                    {featureFlags.canAdjustBalances && (
-                      <button
-                        onClick={() => openUsdtAdjustModal(platform)}
-                        className="p-1 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-                        title="Adjust balance"
-                      >
-                        <SafeIcon icon={FiEdit3} className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
+                <div key={bank} className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg flex justify-between items-center">
+                  <span>{bank}</span>
+                  {featureFlags.canManageBanks && !isInUse && (
+                    <button
+                      onClick={() => handleDeleteBank(bank)}
+                      className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 p-1"
+                      title="Delete bank"
+                    >
+                      <SafeIcon icon={FiTrash2} className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               );
             })}
-            <div className="flex justify-between items-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-              <span className="font-medium">Total USDT Holdings</span>
-              <span className="font-bold text-blue-600 dark:text-blue-400">
-                {Object.values(balances.companyUSDT || {})
-                  .reduce((sum, amount) => sum + amount, 0)
-                  .toFixed(2)} USDT
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div>
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-          User PHP Balances
-        </h3>
-        <div className="space-y-4">
-          {users.map((user) => {
-            const hasBalances = user.bankBalances && Object.keys(user.bankBalances).length > 0;
-            if (!hasBalances) return null;
-
-            return (
-              <div key={user.id} className="card p-4">
-                <h4 className="font-medium text-gray-900 dark:text-white mb-3">
-                  {user.name}
-                </h4>
-                <div className="space-y-2">
-                  {user.assignedBanks?.map((bank) => {
-                    const balance = user.bankBalances[bank] || 0;
-                    return (
-                      <div
-                        key={bank}
-                        className="flex justify-between items-center p-2 bg-gray-50 dark:bg-gray-800 rounded"
-                      >
-                        <span>{bank}</span>
-                        <div className="flex items-center space-x-2">
-                          <span className="font-medium">₱{balance.toFixed(2)}</span>
-                          {featureFlags.canAdjustBalances && (
-                            <button
-                              onClick={() => openAdjustBalanceModal(user, bank)}
-                              className="p-1 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-                              title="Adjust balance"
-                            >
-                              <SafeIcon icon={FiEdit3} className="w-3 h-3" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                  <div className="flex justify-between items-center p-2 bg-green-50 dark:bg-green-900/20 rounded">
-                    <span className="font-medium">Total</span>
-                    <span className="font-bold text-green-600 dark:text-green-400">
-                      ₱{Object.values(user.bankBalances || {})
-                        .reduce((sum, amount) => sum + amount, 0)
-                        .toFixed(2)}
-                    </span>
-                  </div>
-                </div>
+            {banks.length === 0 && (
+              <div className="col-span-3 text-center py-4">
+                <p className="text-gray-500 dark:text-gray-400">No banks found</p>
               </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-
-  // System Settings Tab
-  const renderSettingsTab = () => (
-    <div className="space-y-6">
-      <div>
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex justify-between items-center">
-          <span>System Settings</span>
-          {featureFlags.canManageConfig && (
-            <button
-              onClick={handleSaveConfig}
-              className={`btn-primary flex items-center space-x-2 ${!hasChanges ? 'opacity-50 cursor-not-allowed' : ''}`}
-              disabled={!hasChanges}
-            >
-              <SafeIcon icon={FiSave} className="w-4 h-4" />
-              <span>Save Configuration</span>
-            </button>
-          )}
-        </h3>
-
-        <div className="card p-6">
-          <div className="space-y-6">
-            {/* Initial Capital Tracker */}
-            <div>
-              <h4 className="text-md font-medium text-gray-900 dark:text-white mb-3">
-                Initial Capital Tracker
-              </h4>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Total Invested Funds
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={config.totalInvestedFunds || 0}
-                  onChange={(e) => handleConfigChange('totalInvestedFunds', parseFloat(e.target.value) || 0)}
-                  className="input-field"
-                  placeholder="Enter total invested amount"
-                  disabled={!featureFlags.canManageConfig}
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Track initial capital investment for ROI calculations
-                </p>
-              </div>
-            </div>
-
-            {/* Daily Profit Reset Time */}
-            <div>
-              <h4 className="text-md font-medium text-gray-900 dark:text-white mb-3">
-                Daily Profit Reset Time
-              </h4>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Reset Time (Asia/Manila)
-                </label>
-                <input
-                  type="time"
-                  value={config.dailyProfitResetTime || '01:00'}
-                  onChange={(e) => handleConfigChange('dailyProfitResetTime', e.target.value)}
-                  className="input-field"
-                  disabled={!featureFlags.canManageConfig}
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Daily profit calculation will reset at this time each day
-                </p>
-              </div>
-            </div>
-
-            {/* External APIs */}
-            <div>
-              <h4 className="text-md font-medium text-gray-900 dark:text-white mb-3">
-                External APIs
-              </h4>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    CoinGecko API Key
-                  </label>
-                  <input
-                    type="text"
-                    value={config.coinGeckoApiKey || ''}
-                    onChange={(e) => handleConfigChange('coinGeckoApiKey', e.target.value)}
-                    className="input-field"
-                    placeholder="Optional"
-                    disabled={!featureFlags.canManageConfig}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Telegram Bot Token
-                  </label>
-                  <input
-                    type="text"
-                    value={config.telegramBotToken || ''}
-                    onChange={(e) => handleConfigChange('telegramBotToken', e.target.value)}
-                    className="input-field"
-                    placeholder="Bot token from BotFather"
-                    disabled={!featureFlags.canManageConfig}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Telegram Chat ID
-                  </label>
-                  <input
-                    type="text"
-                    value={config.telegramChatId || ''}
-                    onChange={(e) => handleConfigChange('telegramChatId', e.target.value)}
-                    className="input-field"
-                    placeholder="Chat ID for notifications"
-                    disabled={!featureFlags.canManageConfig}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* System Intervals */}
-            <div>
-              <h4 className="text-md font-medium text-gray-900 dark:text-white mb-3">
-                System Intervals
-              </h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Exchange Rate Update Interval (ms)
-                  </label>
-                  <input
-                    type="number"
-                    min="60000"
-                    max="3600000"
-                    step="60000"
-                    value={config.exchangeRateUpdateInterval || 300000}
-                    onChange={(e) => handleConfigChange('exchangeRateUpdateInterval', parseInt(e.target.value))}
-                    className="input-field"
-                    disabled={!featureFlags.canManageConfig}
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    1 minute = 60,000 ms, 5 minutes = 300,000 ms
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Dashboard Refresh Interval (ms)
-                  </label>
-                  <input
-                    type="number"
-                    min="5000"
-                    max="300000"
-                    step="1000"
-                    value={config.dashboardRefreshInterval || 10000}
-                    onChange={(e) => handleConfigChange('dashboardRefreshInterval', parseInt(e.target.value))}
-                    className="input-field"
-                    disabled={!featureFlags.canManageConfig}
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    5 seconds = 5,000 ms, 1 minute = 60,000 ms
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Security Settings */}
-            <div>
-              <h4 className="text-md font-medium text-gray-900 dark:text-white mb-3">
-                Security Settings
-              </h4>
-              <div className="space-y-3">
-                <div className="flex items-center">
-                  <input
-                    type="checkbox"
-                    id="notificationsEnabled"
-                    checked={config.notificationsEnabled || false}
-                    onChange={(e) => handleConfigChange('notificationsEnabled', e.target.checked)}
-                    className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
-                    disabled={!featureFlags.canManageConfig}
-                  />
-                  <label htmlFor="notificationsEnabled" className="ml-2 block text-sm text-gray-900 dark:text-gray-200">
-                    Enable Telegram Notifications
-                  </label>
-                </div>
-                <div className="flex items-center">
-                  <input
-                    type="checkbox"
-                    id="requireMFAForAdmin"
-                    checked={config.requireMFAForAdmin || false}
-                    onChange={(e) => handleConfigChange('requireMFAForAdmin', e.target.checked)}
-                    className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
-                    disabled={!featureFlags.canManageConfig}
-                  />
-                  <label htmlFor="requireMFAForAdmin" className="ml-2 block text-sm text-gray-900 dark:text-gray-200">
-                    Require MFA for Admin Actions
-                  </label>
-                </div>
-                <div className="flex items-center">
-                  <input
-                    type="checkbox"
-                    id="logAllActions"
-                    checked={config.logAllActions || false}
-                    onChange={(e) => handleConfigChange('logAllActions', e.target.checked)}
-                    className="w-4 h-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded"
-                    disabled={!featureFlags.canManageConfig}
-                  />
-                  <label htmlFor="logAllActions" className="ml-2 block text-sm text-gray-900 dark:text-gray-200">
-                    Log All User Actions
-                  </label>
-                </div>
-              </div>
-            </div>
+            )}
           </div>
         </div>
       </div>
@@ -889,21 +706,7 @@ const Administration = ({ currentUser }) => {
               <span>User Management</span>
             </div>
           </button>
-          {featureFlags.canManageRoles && (
-            <button
-              onClick={() => setActiveTab('roles')}
-              className={`py-3 border-b-2 font-medium text-sm focus:outline-none ${
-                activeTab === 'roles'
-                  ? 'border-primary-600 text-primary-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <div className="flex items-center">
-                <SafeIcon icon={FiShield} className="w-4 h-4 mr-2" />
-                <span>Role Management</span>
-              </div>
-            </button>
-          )}
+
           {(featureFlags.canManagePlatforms || featureFlags.canManageBanks) && (
             <button
               onClick={() => setActiveTab('platforms')}
@@ -919,46 +722,28 @@ const Administration = ({ currentUser }) => {
               </div>
             </button>
           )}
-          {featureFlags.canAdjustBalances && (
-            <button
-              onClick={() => setActiveTab('balances')}
-              className={`py-3 border-b-2 font-medium text-sm focus:outline-none ${
-                activeTab === 'balances'
-                  ? 'border-primary-600 text-primary-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <div className="flex items-center">
-                <SafeIcon icon={FiDollarSign} className="w-4 h-4 mr-2" />
-                <span>Balance Management</span>
-              </div>
-            </button>
-          )}
-          {featureFlags.canManageConfig && (
-            <button
-              onClick={() => setActiveTab('settings')}
-              className={`py-3 border-b-2 font-medium text-sm focus:outline-none ${
-                activeTab === 'settings'
-                  ? 'border-primary-600 text-primary-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <div className="flex items-center">
-                <SafeIcon icon={FiSettings} className="w-4 h-4 mr-2" />
-                <span>System Settings</span>
-              </div>
-            </button>
-          )}
+
+          <button
+            onClick={() => setActiveTab('organization')}
+            className={`py-3 border-b-2 font-medium text-sm focus:outline-none ${
+              activeTab === 'organization'
+                ? 'border-primary-600 text-primary-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            <div className="flex items-center">
+              <SafeIcon icon={FiGlobe} className="w-4 h-4 mr-2" />
+              <span>Organization Settings</span>
+            </div>
+          </button>
         </nav>
       </div>
 
       {/* Tab Content */}
       <div className="mt-6">
         {activeTab === 'users' && renderUsersTab()}
-        {activeTab === 'roles' && <RoleManagement currentUser={currentUser} />}
         {activeTab === 'platforms' && renderPlatformsTab()}
-        {activeTab === 'balances' && renderBalancesTab()}
-        {activeTab === 'settings' && renderSettingsTab()}
+        {activeTab === 'organization' && <WhiteLabelingSettings currentUser={currentUser} />}
       </div>
 
       {/* Add User Modal */}
@@ -1267,6 +1052,122 @@ const Administration = ({ currentUser }) => {
                     disabled={!usdtAdjustment.reason}
                   >
                     Adjust USDT Balance
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete Platform Modal */}
+      <AnimatePresence>
+        {showDeletePlatformModal && platformToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setShowDeletePlatformModal(false)}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-white dark:bg-dark-surface rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                  Delete Platform
+                </h2>
+                <button
+                  onClick={() => setShowDeletePlatformModal(false)}
+                  className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+                >
+                  <SafeIcon icon={FiX} className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+              <div className="p-6 space-y-4">
+                <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg">
+                  <div className="flex justify-between">
+                    <span className="text-gray-700 dark:text-gray-300">Platform:</span>
+                    <span className="font-medium text-gray-900 dark:text-white">{platformToDelete.name}</span>
+                  </div>
+                  <div className="flex justify-between mt-2">
+                    <span className="text-gray-700 dark:text-gray-300">Current USDT Balance:</span>
+                    <span className="font-medium text-gray-900 dark:text-white">{platformToDelete.balance.toFixed(2)} USDT</span>
+                  </div>
+                </div>
+                {platformToDelete.balance > 0 && (
+                  <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-lg">
+                    <p className="text-red-700 dark:text-red-300 text-sm">
+                      <strong>Cannot delete:</strong> Platform has non-zero USDT balance. Please adjust balance to zero first.
+                    </p>
+                  </div>
+                )}
+                <div className="flex justify-end space-x-3 pt-4">
+                  <button
+                    onClick={() => setShowDeletePlatformModal(false)}
+                    className="btn-secondary"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmDeletePlatform}
+                    className="btn-danger"
+                    disabled={platformToDelete.balance > 0}
+                  >
+                    Delete Platform
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete Bank Modal */}
+      <AnimatePresence>
+        {showDeleteBankModal && bankToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setShowDeleteBankModal(false)}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-white dark:bg-dark-surface rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                  Delete Bank
+                </h2>
+                <button
+                  onClick={() => setShowDeleteBankModal(false)}
+                  className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+                >
+                  <SafeIcon icon={FiX} className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+              <div className="p-6 space-y-4">
+                <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg">
+                  <div className="flex justify-between">
+                    <span className="text-gray-700 dark:text-gray-300">Bank:</span>
+                    <span className="font-medium text-gray-900 dark:text-white">{bankToDelete}</span>
+                  </div>
+                  <div className="mt-2">
+                    <span className="text-gray-700 dark:text-gray-300">Status:</span>
+                    <span className="ml-2 font-medium text-green-600 dark:text-green-400">
+                      Safe to delete (no active balances)
+                    </span>
+                  </div>
+                </div>
+                <div className="flex justify-end space-x-3 pt-4">
+                  <button
+                    onClick={() => setShowDeleteBankModal(false)}
+                    className="btn-secondary"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmDeleteBank}
+                    className="btn-danger"
+                  >
+                    Delete Bank
                   </button>
                 </div>
               </div>

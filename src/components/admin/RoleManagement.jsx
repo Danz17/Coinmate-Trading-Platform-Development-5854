@@ -5,8 +5,9 @@ import * as FiIcons from 'react-icons/fi';
 import RoleBadge from '../common/RoleBadge';
 import { RoleManager } from '../../services/RoleManager';
 import { AppStateManager } from '../../services/AppStateManager';
+import { toastManager } from '../common/Toast';
 
-const { FiUsers, FiShield, FiCheck, FiX, FiInfo, FiEdit3 } = FiIcons;
+const { FiUsers, FiShield, FiCheck, FiX, FiInfo, FiEdit3, FiSave } = FiIcons;
 
 const RoleManagement = ({ currentUser }) => {
   const [users, setUsers] = useState([]);
@@ -14,6 +15,9 @@ const RoleManagement = ({ currentUser }) => {
   const [newRole, setNewRole] = useState('');
   const [showRoleModal, setShowRoleModal] = useState(false);
   const [roleChangeReason, setRoleChangeReason] = useState('');
+  const [editingPermissions, setEditingPermissions] = useState(false);
+  const [editedPermissions, setEditedPermissions] = useState({});
+  const [savingPermissions, setSavingPermissions] = useState(false);
 
   useEffect(() => {
     loadUsers();
@@ -30,6 +34,7 @@ const RoleManagement = ({ currentUser }) => {
   const manageableRoles = RoleManager.getManageableRoles(currentUser.role);
   const permissionGroups = RoleManager.getPermissionGroups();
   const roleHierarchy = RoleManager.getRoleHierarchy();
+  const canEditPermissions = RoleManager.hasPermission(currentUser.role, 'manage_roles') && RoleManager.hasPermission(currentUser.role, 'all_access');
 
   const handleRoleChange = (user) => {
     setSelectedUser(user);
@@ -40,19 +45,19 @@ const RoleManagement = ({ currentUser }) => {
 
   const submitRoleChange = () => {
     if (!roleChangeReason.trim()) {
-      alert('Please provide a reason for the role change');
+      toastManager.error('Please provide a reason for the role change');
       return;
     }
 
     const validation = RoleManager.validateRoleAssignment(currentUser.role, newRole);
     if (!validation.valid) {
-      alert(validation.error);
+      toastManager.error(validation.error);
       return;
     }
 
     const oldRole = selectedUser.role;
     AppStateManager.updateUser(selectedUser.id, { role: newRole });
-    
+
     // Log the role change
     AppStateManager.addSystemLog({
       type: 'ROLE_CHANGE',
@@ -65,11 +70,67 @@ const RoleManagement = ({ currentUser }) => {
 
     setShowRoleModal(false);
     setSelectedUser(null);
-    alert('Role changed successfully');
+    toastManager.success('Role changed successfully');
   };
 
   const canManageUser = (user) => {
     return RoleManager.canManageRole(currentUser.role, user.role) && user.id !== currentUser.id;
+  };
+
+  const togglePermissionEdit = () => {
+    if (editingPermissions) {
+      setEditingPermissions(false);
+      setEditedPermissions({});
+    } else {
+      // Initialize edited permissions with current permissions
+      const initialEdits = {};
+      Object.entries(roles).forEach(([roleKey, role]) => {
+        initialEdits[roleKey] = [...role.permissions];
+      });
+      setEditedPermissions(initialEdits);
+      setEditingPermissions(true);
+    }
+  };
+
+  const togglePermission = (roleKey, permission) => {
+    if (!editingPermissions || !canEditPermissions) return;
+
+    // Don't allow editing super_admin permissions
+    if (roleKey === 'super_admin') {
+      toastManager.warning("Super Admin permissions cannot be modified");
+      return;
+    }
+
+    setEditedPermissions(prev => {
+      const updatedPermissions = { ...prev };
+      if (updatedPermissions[roleKey].includes(permission)) {
+        updatedPermissions[roleKey] = updatedPermissions[roleKey].filter(p => p !== permission);
+      } else {
+        updatedPermissions[roleKey] = [...updatedPermissions[roleKey], permission];
+      }
+      return updatedPermissions;
+    });
+  };
+
+  const savePermissionChanges = async () => {
+    if (!canEditPermissions) return;
+    
+    setSavingPermissions(true);
+    try {
+      await RoleManager.updateRolePermissions(editedPermissions, currentUser.name);
+      setEditingPermissions(false);
+      toastManager.success("Permission changes saved successfully");
+      
+      // Force a re-render by updating the component state
+      const updatedRoles = RoleManager.getAllRoles();
+      // This is a hack to force re-render
+      setUsers([...users]);
+    } catch (error) {
+      toastManager.error("Failed to save permission changes");
+      console.error("Error saving permissions:", error);
+    } finally {
+      setSavingPermissions(false);
+    }
   };
 
   return (
@@ -82,7 +143,6 @@ const RoleManagement = ({ currentUser }) => {
           </h3>
           <SafeIcon icon={FiShield} className="w-6 h-6 text-blue-600" />
         </div>
-        
         <div className="space-y-4">
           {roleHierarchy.map((role, index) => (
             <div key={role.key} className="relative">
@@ -128,10 +188,42 @@ const RoleManagement = ({ currentUser }) => {
 
       {/* Permission Matrix */}
       <div className="card p-6">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-          Permission Matrix
-        </h3>
-        
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+            Permission Matrix
+          </h3>
+          {canEditPermissions && (
+            <div className="flex space-x-2">
+              {editingPermissions ? (
+                <>
+                  <button
+                    onClick={savePermissionChanges}
+                    disabled={savingPermissions}
+                    className="btn-primary flex items-center space-x-1 text-sm"
+                  >
+                    <SafeIcon icon={savingPermissions ? FiSave : FiSave} className={`w-4 h-4 ${savingPermissions ? 'animate-spin' : ''}`} />
+                    <span>{savingPermissions ? 'Saving...' : 'Save Changes'}</span>
+                  </button>
+                  <button
+                    onClick={togglePermissionEdit}
+                    className="btn-secondary text-sm"
+                    disabled={savingPermissions}
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={togglePermissionEdit}
+                  className="btn-secondary flex items-center space-x-1 text-sm"
+                >
+                  <SafeIcon icon={FiEdit3} className="w-4 h-4" />
+                  <span>Edit Permissions</span>
+                </button>
+              )}
+            </div>
+          )}
+        </div>
         <div className="overflow-x-auto">
           <table className="min-w-full">
             <thead>
@@ -159,15 +251,35 @@ const RoleManagement = ({ currentUser }) => {
                       <td className="py-2 px-4 text-sm text-gray-600 dark:text-gray-400">
                         {permission.replace('_', ' ')}
                       </td>
-                      {Object.keys(roles).map(roleKey => (
-                        <td key={roleKey} className="text-center py-2 px-2">
-                          {RoleManager.hasPermission(roleKey, permission) ? (
-                            <SafeIcon icon={FiCheck} className="w-4 h-4 text-green-600 mx-auto" />
-                          ) : (
-                            <SafeIcon icon={FiX} className="w-4 h-4 text-gray-300 mx-auto" />
-                          )}
-                        </td>
-                      ))}
+                      {Object.keys(roles).map(roleKey => {
+                        const hasPermission = editingPermissions 
+                          ? editedPermissions[roleKey]?.includes(permission) 
+                          : RoleManager.hasPermission(roleKey, permission);
+                        return (
+                          <td key={roleKey} className="text-center py-2 px-2">
+                            <button
+                              className={`w-5 h-5 rounded-md transition-colors ${
+                                editingPermissions && canEditPermissions && roleKey !== 'super_admin'
+                                  ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700'
+                                  : 'cursor-default'
+                              }`}
+                              onClick={() => togglePermission(roleKey, permission)}
+                              disabled={!editingPermissions || !canEditPermissions || roleKey === 'super_admin'}
+                              title={
+                                editingPermissions && canEditPermissions && roleKey !== 'super_admin'
+                                  ? `${hasPermission ? 'Remove' : 'Add'} ${permission} permission for ${roles[roleKey].name}`
+                                  : undefined
+                              }
+                            >
+                              {hasPermission ? (
+                                <SafeIcon icon={FiCheck} className="w-4 h-4 text-green-600 mx-auto" />
+                              ) : (
+                                <SafeIcon icon={FiX} className="w-4 h-4 text-gray-300 mx-auto" />
+                              )}
+                            </button>
+                          </td>
+                        );
+                      })}
                     </tr>
                   ))}
                 </React.Fragment>
@@ -175,6 +287,14 @@ const RoleManagement = ({ currentUser }) => {
             </tbody>
           </table>
         </div>
+        {editingPermissions && (
+          <div className="mt-4 bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg text-sm text-blue-700 dark:text-blue-300">
+            <p>
+              <strong>Note:</strong> Changing permissions affects system security. Super Admin permissions cannot be modified.
+              {roleKey !== 'super_admin' && " Click on the checkmarks to toggle permissions for each role."}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* User Role Management */}
@@ -185,10 +305,12 @@ const RoleManagement = ({ currentUser }) => {
           </h3>
           <SafeIcon icon={FiUsers} className="w-6 h-6 text-indigo-600" />
         </div>
-
         <div className="space-y-4">
-          {users.map(user => (
-            <div key={user.id} className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+          {users.map((user) => (
+            <div
+              key={user.id}
+              className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-lg"
+            >
               <div className="flex items-center space-x-4">
                 <div className="w-10 h-10 bg-primary-100 dark:bg-primary-900 rounded-full flex items-center justify-center">
                   <SafeIcon icon={FiUsers} className="w-5 h-5 text-primary-600 dark:text-primary-400" />
@@ -202,10 +324,8 @@ const RoleManagement = ({ currentUser }) => {
                   </p>
                 </div>
               </div>
-              
               <div className="flex items-center space-x-4">
                 <RoleBadge role={user.role} />
-                
                 {canManageUser(user) && (
                   <button
                     onClick={() => handleRoleChange(user)}
@@ -215,7 +335,6 @@ const RoleManagement = ({ currentUser }) => {
                     <SafeIcon icon={FiEdit3} className="w-4 h-4" />
                   </button>
                 )}
-                
                 {user.id === currentUser.id && (
                   <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-200 dark:bg-gray-700 px-2 py-1 rounded">
                     You
@@ -246,7 +365,6 @@ const RoleManagement = ({ currentUser }) => {
                 <SafeIcon icon={FiX} className="w-5 h-5 text-gray-500" />
               </button>
             </div>
-            
             <div className="p-6 space-y-4">
               <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
                 <div className="flex items-center space-x-2 mb-2">
@@ -268,7 +386,6 @@ const RoleManagement = ({ currentUser }) => {
                   <RoleBadge role={selectedUser.role} size="sm" />
                 </div>
               </div>
-
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   New Role
@@ -286,7 +403,6 @@ const RoleManagement = ({ currentUser }) => {
                   ))}
                 </select>
               </div>
-
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Reason for Change *
@@ -300,7 +416,6 @@ const RoleManagement = ({ currentUser }) => {
                   required
                 />
               </div>
-
               {newRole !== selectedUser.role && (
                 <div className="bg-yellow-50 dark:bg-yellow-900/20 p-4 rounded-lg">
                   <div className="flex items-center space-x-2">
@@ -310,12 +425,10 @@ const RoleManagement = ({ currentUser }) => {
                     </span>
                   </div>
                   <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
-                    Changing this user's role will immediately affect their access permissions. 
-                    They may need to log out and back in for all changes to take effect.
+                    Changing this user's role will immediately affect their access permissions. They may need to log out and back in for all changes to take effect.
                   </p>
                 </div>
               )}
-
               <div className="flex justify-end space-x-3 pt-4">
                 <button
                   onClick={() => setShowRoleModal(false)}

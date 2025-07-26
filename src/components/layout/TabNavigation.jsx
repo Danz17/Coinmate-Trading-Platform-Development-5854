@@ -4,10 +4,20 @@ import SafeIcon from '../../common/SafeIcon';
 import * as FiIcons from 'react-icons/fi';
 import { RoleManager } from '../../services/RoleManager';
 
-const { FiHome, FiTrendingUp, FiList, FiBarChart3, FiSun, FiClock, FiSettings, FiPlay } = FiIcons;
+const { FiHome, FiTrendingUp, FiList, FiBarChart3, FiSun, FiClock, FiSettings, FiActivity, FiFileText } = FiIcons;
 
 const TabNavigation = ({ activeTab, onTabChange, userRole }) => {
-  const menuItems = RoleManager.getMenuItems(userRole);
+  const menuItems = [
+    { id: 'dashboard', label: 'Dashboard', icon: 'FiHome', permission: 'view_own_data' },
+    { id: 'trade', label: 'Trade', icon: 'FiTrendingUp', permission: 'trade_own_account' },
+    { id: 'transactions', label: 'Transactions', icon: 'FiList', permission: 'view_own_data' },
+    { id: 'logs', label: 'Logs', icon: 'FiFileText', permission: 'view_own_data' },
+    { id: 'tracker', label: 'Tracker', icon: 'FiBarChart3', permission: 'view_analytics' },
+    { id: 'advanced-analytics', label: 'Advanced Analytics', icon: 'FiActivity', permission: 'advanced_analytics' },
+    { id: 'eod', label: 'End of Day', icon: 'FiSun', permission: 'execute_eod' },
+    { id: 'hr', label: 'HR Tracking', icon: 'FiClock', permission: 'view_hr_logs' },
+    { id: 'admin', label: 'Administration', icon: 'FiSettings', permission: 'manage_users' }
+  ].filter(item => RoleManager.hasPermission(userRole, item.permission));
 
   return (
     <nav className="bg-white dark:bg-dark-surface border-b border-gray-200 dark:border-dark-border sticky top-16 z-30 lg:static lg:top-0">

@@ -14,7 +14,6 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: true,
     rollupOptions: {
-      external: [],
       output: {
         manualChunks: {
           vendor: ['react', 'react-dom'],
@@ -26,11 +25,7 @@ export default defineConfig({
       }
     }
   },
-  define: {
-    'process.env': {},
-    global: 'globalThis'
-  },
   optimizeDeps: {
-    include: ['@questlabs/react-sdk', '@supabase/supabase-js']
+    include: ['@supabase/supabase-js']
   }
 });
