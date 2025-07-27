@@ -1,3 +1,4 @@
+import { NotificationService } from './NotificationService';
 class SecurityServiceClass {
   constructor() {
     this.sessionTimeout = 30 * 60 * 1000; // 30 minutes
