@@ -360,6 +360,303 @@ Push to the branch (git push origin feature/amazing-feature)
 5.
 Open a Pull Request
 
+User Prompt Logic in Coinmate
+
+Authentication Prompts
+
+1.
+**Login Modal (LoginModal.jsx)**
+•
+Accepts email and password inputs
+•
+Validates credentials against user database
+•
+Provides quick login options for demo users
+•
+Shows password visibility toggle
+•
+Displays error messages for invalid credentials
+•
+Simulates authentication delay for better UX
+
+2.
+**Logout Confirmation**
+•
+Confirms user intent to log out
+•
+Handles session termination
+•
+Updates HR logs with logout time and duration
+
+Transaction Prompts
+
+1.
+**Transaction Type Selection (Trade.jsx, EnhancedTrade.jsx)**
+•
+Toggle between BUY and SELL transactions
+•
+Visual differentiation between transaction types (green for buy, red for sell)
+
+2.
+**Transaction Form**
+•
+User account selection with role display
+•
+Bank account selection with available balance
+•
+Platform selection
+•
+Rate input with current rate suggestion
+•
+Amount input (USDT and PHP) with automatic calculation
+•
+Optional transfer fee and note fields
+•
+Form validation with detailed error messages
+
+3.
+**Transaction Confirmation**
+•
+Displays transaction details for verification
+•
+Shows balance impact preview
+•
+Highlights rate deviation from market rate
+•
+Requires explicit confirmation
+
+4.
+**Internal Transfer**
+•
+PHP transfers between user bank accounts
+•
+USDT transfers between platforms
+•
+Form validation for sufficient balances
+•
+Confirmation dialog with transfer details
+
+Administration Prompts
+
+1.
+**User Management**
+•
+Add new user with role and bank assignments
+•
+Edit existing user details and permissions
+•
+Delete user with confirmation
+•
+Adjust user bank balances with reason tracking
+
+2.
+**Platform & Bank Management**
+•
+Add/delete platforms with balance checks
+•
+Add/delete banks with usage checks
+•
+Adjust platform USDT balances with reason tracking
+
+3.
+**Role Management**
+•
+View role hierarchy and permissions
+•
+Edit role permissions with matrix interface
+•
+Assign roles to users with reason tracking
+•
+Permission validation based on role hierarchy
+
+4.
+**Organization Settings**
+•
+Create/edit organizations with branding options
+•
+Upload logos and favicons
+•
+Set color schemes for light and dark modes
+•
+Assign organization administrators
+•
+Set default organization
+
+System Settings Prompts
+
+1.
+**Daily Profit Configuration**
+•
+Set reset time for daily profit calculations
+•
+Configure timezone settings
+
+2.
+**Capital Tracking**
+•
+Track total invested funds
+•
+Display ROI calculations
+
+3.
+**System Intervals**
+•
+Configure exchange rate update frequency
+•
+Set dashboard refresh intervals
+
+4.
+**External Integrations**
+•
+Configure CoinGecko API for exchange rates
+•
+Set up Telegram notifications with bot token and chat ID
+
+5.
+**Notification Settings**
+•
+Enable/disable various notification channels
+•
+Configure notification triggers
+
+End of Day Process Prompts
+
+1.
+**Profit Collection**
+•
+Select users for profit collection
+•
+View calculated profit per user
+•
+Adjust profit amounts manually
+•
+Select bank accounts for profit deduction
+•
+Add notes to EOD process
+•
+Confirmation dialog with summary
+
+Analytics & Filtering Prompts
+
+1.
+**Dashboard Customization**
+•
+Drag and resize widgets
+•
+Save custom layouts per user
+•
+Toggle auto-refresh
+
+2.
+**Transaction Filtering**
+•
+Search by user, platform, bank, or note
+•
+Filter by transaction type
+•
+Filter by date range
+•
+Export filtered results to CSV or PDF
+
+3.
+**Advanced Analytics Filtering**
+•
+Select time period (week, month, quarter)
+•
+Filter by transaction parameters
+•
+Select chart type and metrics
+•
+Export analytics reports
+
+System Log Prompts
+
+1.
+**Log Filtering**
+•
+Filter by log type (transaction, balance adjustment, etc.)
+•
+Filter by user
+•
+Filter by date range
+•
+Search in log content
+•
+Export filtered logs
+
+2.
+**HR Tracking**
+•
+View current session duration
+•
+View active users and their session times
+•
+Manual logout option
+•
+Export time logs to CSV or PDF
+
+Onboarding Prompts
+
+1.
+**Get Started Overlay**
+•
+Step-by-step introduction to system features
+•
+Interactive guide with navigation to relevant sections
+•
+Progress tracking
+•
+Minimizable interface with persistent launcher
+
+2.
+**Get Started Component**
+•
+Detailed feature explanations
+•
+Progress tracking with completion status
+•
+Reset progress option
+
+Common UI Prompts
+
+1.
+**Dark Mode Toggle**
+•
+Switch between light and dark themes
+•
+Persist preference in local storage
+
+2.
+**Organization Selector**
+•
+Switch between organizations
+•
+Apply organization-specific branding
+•
+Navigate to organization management
+
+3.
+**Tab Navigation**
+•
+Navigate between application sections
+•
+Permission-based tab visibility
+•
+Hash-based routing
+
+4.
+**Toast Notifications**
+•
+Display success/error/warning messages
+•
+Support for action buttons in notifications
+•
+Auto-dismiss with configurable duration
+
+The application uses a consistent pattern of form validation, confirmation dialogs, and clear error messaging across all user interactions, with role-based access control determining what actions users can perform.
+
+it has p2p api support for bybit , okx , binance where php usdt ads pulled for analysis
+
 License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
