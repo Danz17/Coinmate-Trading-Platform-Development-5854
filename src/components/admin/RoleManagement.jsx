@@ -290,7 +290,8 @@ const RoleManagement = ({ currentUser }) => {
         {editingPermissions && (
           <div className="mt-4 bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg text-sm text-blue-700 dark:text-blue-300">
             <p>
-              <strong>Note:</strong> Changing permissions affects system security. Super Admin permissions cannot be modified. Click on the checkmarks to toggle permissions for each role.
+              <strong>Note:</strong> Changing permissions affects system security. Super Admin permissions cannot be modified.
+              {roleKey !== 'super_admin' && " Click on the checkmarks to toggle permissions for each role."}
             </p>
           </div>
         )}

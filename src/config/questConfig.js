@@ -1,13 +1,10 @@
 export const questConfig = {
-  GET_STARTED_QUESTID:
-    import.meta.env.VITE_GET_STARTED_QUESTID ?? process.env.VITE_GET_STARTED_QUESTID,
-  USER_ID:
-    import.meta.env.VITE_QUEST_USER_ID ?? process.env.VITE_QUEST_USER_ID,
-  APIKEY: import.meta.env.VITE_QUEST_APIKEY ?? process.env.VITE_QUEST_APIKEY,
-  TOKEN: import.meta.env.VITE_QUEST_TOKEN ?? process.env.VITE_QUEST_TOKEN,
-  ENTITYID: import.meta.env.VITE_QUEST_ENTITYID ?? process.env.VITE_QUEST_ENTITYID,
-  PRIMARY_COLOR:
-    import.meta.env.VITE_QUEST_PRIMARY_COLOR ?? process.env.VITE_QUEST_PRIMARY_COLOR,
+  GET_STARTED_QUESTID: 'c-greta-get-started',
+  USER_ID: 'u-0e2da85c-9044-47a5-a84b-dbe0638e7a35',
+  APIKEY: 'k-fc6f25dc-5fa5-4c37-b208-816855129587',
+  TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJ1LTBlMmRhODVjLTkwNDQtNDdhNS1hODRiLWRiZTA2MzhlN2EzNSIsImlhdCI6MTc1MzM3MDQ3NCwiZXhwIjoxNzU1OTYyNDc0fQ.crdJfh0gTtUvVHbYK7uG9RAzLTDrH_WxbRvp5pOT36w',
+  ENTITYID: 'e-e8398dae-4adc-4849-b230-5b7e50469f66',
+  PRIMARY_COLOR: '#2563eb',
   
   // Validation function
   isValid() {
