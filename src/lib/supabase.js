@@ -1,15 +1,21 @@
 import { createClient } from '@supabase/supabase-js'
 
-const SUPABASE_URL = 'https://zeqitbdwqrvelzdmnrjw.supabase.co'
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InplcWl0YmR3cXJ2ZWx6ZG1ucmp3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTMzNzMxMzMsImV4cCI6MjA2ODk0OTEzM30.N_pyfbcPrvNFC1X3NkYuDwkUC8jbmndghcYBAQJ7XCY'
+// Get environment variables from import.meta.env (Vite's way of accessing env vars)
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 
-if(SUPABASE_URL === 'https://<PROJECT-ID>.supabase.co' || SUPABASE_ANON_KEY === '<ANON_KEY>') {
-  throw new Error('Missing Supabase variables');
+// Validate environment variables
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  console.error('Missing Supabase environment variables. Check your .env file.')
+  throw new Error('Missing Supabase environment variables')
 }
 
-export default createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+// Create Supabase client
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     persistSession: true,
     autoRefreshToken: true
   }
 })
+
+export default supabase
