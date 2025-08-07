@@ -5,7 +5,7 @@ import * as FiIcons from 'react-icons/fi';
 import { AppStateManager } from '../../services/AppStateManager';
 import { RoleManager } from '../../services/RoleManager';
 import { ExchangeRateService } from '../../services/ExchangeRateService';
-import { toastManager } from '../common/Toast';
+import { toastManager } from '../common/Toast.jsx';
 import supabase from '../../lib/supabase';
 
 const { FiDollarSign, FiTrendingUp, FiTrendingDown, FiSend, FiCheck, FiAlertTriangle, FiRefreshCw, FiInfo } = FiIcons;

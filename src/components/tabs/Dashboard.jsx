@@ -7,7 +7,7 @@ import { TooltipIcon } from '../common/Tooltip';
 import { AppStateManager } from '../../services/AppStateManager';
 import { ExchangeRateService } from '../../services/ExchangeRateService';
 import { toastManager } from '../common/Toast';
-import { SupabaseService } from '../../services/SupabaseService';
+import SupabaseService from '../../services/SupabaseService.js';
 import { format } from 'date-fns';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';

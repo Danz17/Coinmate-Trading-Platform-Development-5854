@@ -1,5 +1,5 @@
 import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
-import { SupabaseService } from './SupabaseService';
+import SupabaseService from './SupabaseService.js';
 
 class AppStateManagerClass {
   constructor() {

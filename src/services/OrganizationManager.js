@@ -1,4 +1,4 @@
-import { SupabaseService } from './SupabaseService';
+import SupabaseService from './SupabaseService.js';
 import { AppStateManager } from './AppStateManager';
 import { toastManager } from '../components/common/Toast';
 

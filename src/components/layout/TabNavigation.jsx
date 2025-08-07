@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import SafeIcon from '../../common/SafeIcon';
+import SafeIcon from '../../common/SafeIcon.jsx';
 import * as FiIcons from 'react-icons/fi';
 import { RoleManager } from '../../services/RoleManager';
 
