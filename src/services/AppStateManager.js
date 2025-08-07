@@ -1,468 +1,438 @@
-import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 import { SupabaseService } from './SupabaseService';
+import { OrganizationManager } from './OrganizationManager';
+import { SecurityService } from './SecurityService';
 
 class AppStateManagerClass {
   constructor() {
     this.currentUser = null;
-    this.subscribers = new Set();
-    this.data = {
-      users: [],
-      transactions: [],
-      platforms: [],
-      banks: [],
-      systemLogs: [],
-      hrLogs: [],
-      systemSettings: {}
-    };
+    this.currentOrganization = null;
     this.isInitialized = false;
+    this.isInitializing = false;
+    this.listeners = {
+      user: [],
+      organization: [],
+      state: []
+    };
+    this.state = {
+      isLoading: true,
+      isAuthenticated: false,
+      selectedTab: 'dashboard',
+      featureFlags: {
+        enableAnalytics: true,
+        enableNotifications: true,
+        enableAdvancedTrade: false,
+        enableWhiteLabeling: false
+      }
+    };
   }
 
+  /**
+   * Initialize application state
+   * @returns {Promise<boolean>} - Whether initialization was successful
+   */
   async initialize() {
-    if (this.isInitialized) return;
+    if (this.isInitialized || this.isInitializing) return this.isInitialized;
+    
+    this.isInitializing = true;
+    this.setState({ isLoading: true });
+    
     try {
-      // Load current user session
-      const savedUser = localStorage.getItem('coinmate-current-user');
-      if (savedUser) {
-        this.currentUser = JSON.parse(savedUser);
+      // Load current user
+      const user = await SupabaseService.getCurrentUser();
+      
+      if (user) {
+        this.setCurrentUser(user);
+        
+        // Initialize organization manager
+        await OrganizationManager.initialize();
+        
+        // Set current organization if user has one
+        if (user.organization_id) {
+          const org = await OrganizationManager.getOrganization(user.organization_id);
+          if (org) {
+            this.setCurrentOrganization(org);
+            
+            // Load security settings for organization
+            await SecurityService.loadSecuritySettings(org.id);
+            
+            // Apply white label settings if available
+            const whiteLabel = await OrganizationManager.getWhiteLabelSettings(org.id);
+            if (whiteLabel) {
+              OrganizationManager.applyWhiteLabelSettings(whiteLabel);
+            }
+          }
+        }
+        
+        // Set feature flags based on user role
+        if (user.role === 'super_admin' || user.role === 'admin') {
+          this.setFeatureFlags({
+            enableAnalytics: true,
+            enableNotifications: true,
+            enableAdvancedTrade: true,
+            enableWhiteLabeling: user.role === 'super_admin'
+          });
+        } else if (user.role === 'analyst') {
+          this.setFeatureFlags({
+            enableAnalytics: true,
+            enableNotifications: true,
+            enableAdvancedTrade: false,
+            enableWhiteLabeling: false
+          });
+        }
+        
+        this.setState({ isAuthenticated: true });
+      } else {
+        this.setState({ isAuthenticated: false });
       }
-
-      // Load all data from Supabase
-      await this.loadAllData();
+      
       this.isInitialized = true;
+      this.isInitializing = false;
+      this.setState({ isLoading: false });
+      
+      return true;
     } catch (error) {
-      console.error('Failed to initialize AppStateManager:', error);
-      // Fallback to localStorage if available
-      this.loadFromLocalStorage();
-      this.isInitialized = true;
-      // Continue even if there's an error
+      console.error('Error initializing app state:', error);
+      this.isInitializing = false;
+      this.setState({ isLoading: false, isAuthenticated: false });
+      return false;
     }
   }
 
-  async loadAllData() {
-    try {
-      const [users, transactions, platforms, banks, systemSettings, systemLogs, hrLogs] = await Promise.all([
-        SupabaseService.getUsers().catch(() => []),
-        SupabaseService.getTransactions().catch(() => []),
-        SupabaseService.getPlatforms().catch(() => []),
-        SupabaseService.getBanks().catch(() => []),
-        SupabaseService.getSystemSettings().catch(() => ({})),
-        SupabaseService.getSystemLogs().catch(() => []),
-        SupabaseService.getHRLogs().catch(() => [])
-      ]);
-
-      this.data = {
-        users: users || [],
-        transactions: transactions || [],
-        platforms: platforms || [],
-        banks: banks || [],
-        systemSettings: systemSettings || {},
-        systemLogs: systemLogs || [],
-        hrLogs: hrLogs || []
-      };
-      this.notify();
-    } catch (error) {
-      console.error('Error loading data:', error);
-      // Don't throw error, just log it and continue with empty data
-    }
+  /**
+   * Set current user
+   * @param {Object} user - User data
+   */
+  setCurrentUser(user) {
+    this.currentUser = user;
+    this.notifyListeners('user', user);
   }
 
-  loadFromLocalStorage() {
-    const savedData = localStorage.getItem('coinmate-data');
-    if (savedData) {
-      try {
-        const parsedData = JSON.parse(savedData);
-        this.data = { ...this.data, ...parsedData };
-        this.notify();
-      } catch (error) {
-        console.error('Error parsing localStorage data:', error);
-      }
-    }
-  }
-
-  subscribe(callback) {
-    this.subscribers.add(callback);
-    return () => this.subscribers.delete(callback);
-  }
-
-  notify() {
-    this.subscribers.forEach(callback => callback(this.data));
-  }
-
-  // User management
+  /**
+   * Get current user
+   * @returns {Object} - Current user
+   */
   getCurrentUser() {
     return this.currentUser;
   }
 
-  async setCurrentUser(user) {
-    this.currentUser = user;
-    localStorage.setItem('coinmate-current-user', JSON.stringify(user));
-
-    // Update user login status
-    try {
-      await SupabaseService.updateUser(user.id, { is_logged_in: true, login_time: new Date().toISOString() });
-
-      // Add HR log
-      await SupabaseService.createHRLog({
-        user_name: user.name,
-        login_time: new Date().toISOString(),
-        status: 'active'
-      });
-      await this.loadAllData();
-    } catch (error) {
-      console.error('Error updating user login status:', error);
-    }
+  /**
+   * Set current organization
+   * @param {Object} organization - Organization data
+   */
+  setCurrentOrganization(organization) {
+    this.currentOrganization = organization;
+    this.notifyListeners('organization', organization);
   }
 
-  async logout() {
-    if (this.currentUser) {
-      try {
-        // Update user logout status
-        await SupabaseService.updateUser(this.currentUser.id, { is_logged_in: false, login_time: null });
+  /**
+   * Get current organization
+   * @returns {Object} - Current organization
+   */
+  getCurrentOrganization() {
+    return this.currentOrganization;
+  }
 
-        // Update HR log
-        const hrLogs = await SupabaseService.getHRLogs();
-        const activeLog = hrLogs.find(log => log.user_name === this.currentUser.name && log.status === 'active');
-        if (activeLog) {
-          const logoutTime = new Date();
-          const loginTime = new Date(activeLog.login_time);
-          const totalHours = this.calculateHours(loginTime, logoutTime);
+  /**
+   * Set feature flags
+   * @param {Object} flags - Feature flags
+   */
+  setFeatureFlags(flags) {
+    this.state.featureFlags = {
+      ...this.state.featureFlags,
+      ...flags
+    };
+    this.notifyListeners('state', this.state);
+  }
 
-          await SupabaseService.updateHRLog(activeLog.id, {
-            logout_time: logoutTime.toISOString(),
-            total_hours: totalHours,
-            status: 'completed',
-            logout_type: 'manual'
+  /**
+   * Get feature flags
+   * @returns {Object} - Feature flags
+   */
+  getFeatureFlags() {
+    return { ...this.state.featureFlags };
+  }
+
+  /**
+   * Set application state
+   * @param {Object} newState - New state
+   */
+  setState(newState) {
+    this.state = {
+      ...this.state,
+      ...newState
+    };
+    this.notifyListeners('state', this.state);
+  }
+
+  /**
+   * Get application state
+   * @returns {Object} - Application state
+   */
+  getState() {
+    return { ...this.state };
+  }
+
+  /**
+   * Login user
+   * @param {string} email - User email
+   * @param {string} password - User password
+   * @returns {Promise<Object>} - Login result
+   */
+  async loginUser(email, password) {
+    try {
+      this.setState({ isLoading: true });
+      
+      const { session, user, profile } = await SupabaseService.signIn(email, password);
+      
+      if (user) {
+        // Combine auth user with profile data
+        const userData = { ...user, ...profile };
+        this.setCurrentUser(userData);
+        
+        // Set current organization if user has one
+        if (userData.organization_id) {
+          const org = await OrganizationManager.getOrganization(userData.organization_id);
+          if (org) {
+            this.setCurrentOrganization(org);
+            
+            // Load security settings for organization
+            await SecurityService.loadSecuritySettings(org.id);
+            
+            // Apply white label settings if available
+            const whiteLabel = await OrganizationManager.getWhiteLabelSettings(org.id);
+            if (whiteLabel) {
+              OrganizationManager.applyWhiteLabelSettings(whiteLabel);
+            }
+          }
+        }
+        
+        // Set feature flags based on user role
+        if (userData.role === 'super_admin' || userData.role === 'admin') {
+          this.setFeatureFlags({
+            enableAnalytics: true,
+            enableNotifications: true,
+            enableAdvancedTrade: true,
+            enableWhiteLabeling: userData.role === 'super_admin'
+          });
+        } else if (userData.role === 'analyst') {
+          this.setFeatureFlags({
+            enableAnalytics: true,
+            enableNotifications: true,
+            enableAdvancedTrade: false,
+            enableWhiteLabeling: false
           });
         }
-      } catch (error) {
-        console.error('Error updating logout status:', error);
-      }
-    }
-    this.currentUser = null;
-    localStorage.removeItem('coinmate-current-user');
-  }
-
-  calculateHours(startTime, endTime) {
-    const diffMs = endTime - startTime;
-    const hours = Math.floor(diffMs / (1000 * 60 * 60));
-    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-    return `${hours}:${minutes.toString().padStart(2, '0')}`;
-  }
-
-  // Data getters
-  getUsers() {
-    return this.data.users;
-  }
-
-  getTransactions() {
-    return this.data.transactions;
-  }
-
-  getPlatforms() {
-    return this.data.platforms.map(p => p.name || p);
-  }
-
-  getBanks() {
-    return this.data.banks.map(b => b.name || b);
-  }
-
-  getSystemLogs() {
-    return this.data.systemLogs;
-  }
-
-  getHRLogs() {
-    return this.data.hrLogs;
-  }
-
-  getSystemSettings() {
-    return this.data.systemSettings;
-  }
-
-  // Get platform balances
-  getBalances() {
-    const companyUSDT = {};
-    this.data.platforms.forEach(platform => {
-      const name = platform.name || platform;
-      companyUSDT[name] = platform.usdt_balance || 0;
-    });
-    return { companyUSDT };
-  }
-
-  // Transaction management
-  async addTransaction(transaction) {
-    try {
-      const newTransaction = await SupabaseService.createTransaction({
-        type: transaction.type,
-        user_id: transaction.user_id,
-        user_name: transaction.user_name,
-        usdt_amount: transaction.usdtAmount,
-        php_amount: transaction.phpAmount,
-        platform: transaction.platform,
-        bank: transaction.bank,
-        rate: transaction.rate,
-        fee: transaction.fee || 0,
-        note: transaction.note || '',
-        status: 'completed'
-      });
-
-      // Update balances
-      await this.updateBalances(newTransaction);
-      await this.loadAllData();
-      return newTransaction;
-    } catch (error) {
-      console.error('Error adding transaction:', error);
-      throw error;
-    }
-  }
-
-  async updateBalances(transaction) {
-    const { type, user_id, usdt_amount, php_amount, platform, bank } = transaction;
-    try {
-      // Update user PHP balance
-      if (bank) {
-        const user = this.data.users.find(u => u.id === user_id);
-        if (user) {
-          const currentBalances = user.bank_balances || {};
-          const currentBalance = currentBalances[bank] || 0;
-          let newBalance;
-          if (type === 'BUY') {
-            newBalance = currentBalance + php_amount;
-          } else if (type === 'SELL') {
-            newBalance = currentBalance - php_amount;
-          } else {
-            newBalance = currentBalance;
-          }
-          const updatedBalances = { ...currentBalances, [bank]: newBalance };
-          await SupabaseService.updateUser(user_id, { bank_balances: updatedBalances });
-        }
-      }
-
-      // Update platform USDT balance
-      if (platform) {
-        const platformData = this.data.platforms.find(p => (p.name || p) === platform);
-        if (platformData) {
-          let newBalance;
-          const currentBalance = platformData.usdt_balance || 0;
-          if (type === 'BUY') {
-            newBalance = currentBalance + usdt_amount;
-          } else if (type === 'SELL') {
-            newBalance = currentBalance - usdt_amount;
-          } else {
-            newBalance = currentBalance;
-          }
-          await SupabaseService.updatePlatformBalance(platform, newBalance);
-        }
+        
+        this.setState({ isAuthenticated: true, isLoading: false });
+        
+        // Log login event
+        await SupabaseService.createSystemLog({
+          type: 'auth',
+          subtype: 'login',
+          user: userData.name || userData.email,
+          reason: 'User logged in',
+          organization_id: userData.organization_id
+        });
+        
+        return { success: true, user: userData };
+      } else {
+        this.setState({ isAuthenticated: false, isLoading: false });
+        return { success: false, error: 'Invalid login credentials' };
       }
     } catch (error) {
-      console.error('Error updating balances:', error);
-      throw error;
+      console.error('Error logging in:', error);
+      this.setState({ isAuthenticated: false, isLoading: false });
+      return { success: false, error: error.message || 'Login failed' };
     }
   }
 
-  // Analytics
-  getTransactionsByPeriod(period = 'today') {
-    const now = new Date();
-    let startDate, endDate;
-    switch (period) {
-      case 'today':
-        startDate = startOfDay(now);
-        endDate = endOfDay(now);
-        break;
-      case 'week':
-        startDate = startOfWeek(now);
-        endDate = endOfWeek(now);
-        break;
-      case 'month':
-        startDate = startOfMonth(now);
-        endDate = endOfMonth(now);
-        break;
-      default:
-        startDate = startOfDay(now);
-        endDate = endOfDay(now);
-    }
-
-    return this.data.transactions.filter(t => {
-      const transactionDate = new Date(t.created_at);
-      return transactionDate >= startDate && transactionDate <= endDate;
-    });
-  }
-
-  getAverageBuyRate() {
-    const buyTransactions = this.data.transactions.filter(t => t.type === 'BUY');
-    if (buyTransactions.length === 0) return 0;
-    const totalPHP = buyTransactions.reduce((sum, t) => sum + t.php_amount, 0);
-    const totalUSDT = buyTransactions.reduce((sum, t) => sum + t.usdt_amount, 0);
-    return totalUSDT > 0 ? totalPHP / totalUSDT : 0;
-  }
-
-  getAverageSellRate() {
-    const sellTransactions = this.data.transactions.filter(t => t.type === 'SELL');
-    if (sellTransactions.length === 0) return 0;
-    const totalPHP = sellTransactions.reduce((sum, t) => sum + t.php_amount, 0);
-    const totalUSDT = sellTransactions.reduce((sum, t) => sum + t.usdt_amount, 0);
-    return totalUSDT > 0 ? totalPHP / totalUSDT : 0;
-  }
-
-  getTotalCompanyUSDT() {
-    return this.data.platforms.reduce((sum, platform) => {
-      return sum + (platform.usdt_balance || 0);
-    }, 0);
-  }
-
-  // User management methods
-  async addUser(userData) {
+  /**
+   * Logout user
+   * @returns {Promise<boolean>} - Whether logout was successful
+   */
+  async logoutUser() {
     try {
-      const newUser = await SupabaseService.createUser({
-        email: userData.email,
-        name: userData.name,
-        role: userData.role,
-        assigned_banks: userData.assignedBanks || [],
-        bank_balances: {}
+      this.setState({ isLoading: true });
+      
+      // Log logout event if user is logged in
+      if (this.currentUser) {
+        await SupabaseService.createSystemLog({
+          type: 'auth',
+          subtype: 'logout',
+          user: this.currentUser.name || this.currentUser.email,
+          reason: 'User logged out',
+          organization_id: this.currentUser.organization_id
+        });
+      }
+      
+      await SupabaseService.signOut();
+      
+      // Clear state
+      this.setCurrentUser(null);
+      this.setCurrentOrganization(null);
+      
+      // Reset feature flags
+      this.setFeatureFlags({
+        enableAnalytics: true,
+        enableNotifications: true,
+        enableAdvancedTrade: false,
+        enableWhiteLabeling: false
       });
-      await this.loadAllData();
-      return newUser;
+      
+      this.setState({ isAuthenticated: false, isLoading: false });
+      
+      return true;
     } catch (error) {
-      console.error('Error adding user:', error);
-      throw error;
+      console.error('Error logging out:', error);
+      this.setState({ isLoading: false });
+      return false;
     }
   }
 
-  async updateUser(userId, updates) {
+  /**
+   * Register new user
+   * @param {string} email - User email
+   * @param {string} password - User password
+   * @param {Object} userData - Additional user data
+   * @returns {Promise<Object>} - Registration result
+   */
+  async registerUser(email, password, userData = {}) {
     try {
-      const updatedUser = await SupabaseService.updateUser(userId, {
-        name: updates.name,
-        email: updates.email,
-        role: updates.role,
-        assigned_banks: updates.assignedBanks
-      });
-      await this.loadAllData();
-      return updatedUser;
-    } catch (error) {
-      console.error('Error updating user:', error);
-      throw error;
-    }
-  }
-
-  async deleteUser(userId) {
-    try {
-      await SupabaseService.deleteUser(userId);
-      await this.loadAllData();
-    } catch (error) {
-      console.error('Error deleting user:', error);
-      throw error;
-    }
-  }
-
-  // Platform and bank management
-  async addPlatform(platformName) {
-    try {
-      await SupabaseService.createPlatform(platformName, 0);
-      await this.loadAllData();
-    } catch (error) {
-      console.error('Error adding platform:', error);
-      throw error;
-    }
-  }
-
-  async deletePlatform(platformName) {
-    // Check if platform has non-zero balance
-    const balances = this.getBalances();
-    const platformBalance = balances.companyUSDT[platformName] || 0;
-    if (platformBalance > 0) {
-      throw new Error('Cannot delete platform with non-zero balance');
-    }
-
-    try {
-      await SupabaseService.deletePlatform(platformName);
-      await this.loadAllData();
-    } catch (error) {
-      console.error('Error deleting platform:', error);
-      throw error;
-    }
-  }
-
-  async addBank(bankName) {
-    try {
-      await SupabaseService.createBank(bankName);
-      await this.loadAllData();
-    } catch (error) {
-      console.error('Error adding bank:', error);
-      throw error;
-    }
-  }
-
-  async deleteBank(bankName) {
-    // Check if any user has a non-zero balance for this bank
-    const users = this.getUsers();
-    const bankInUse = users.some(user => {
-      const bankBalance = user.bank_balances?.[bankName] || 0;
-      return bankBalance > 0;
-    });
-
-    if (bankInUse) {
-      throw new Error('Cannot delete bank with active balances');
-    }
-
-    try {
-      await SupabaseService.deleteBank(bankName);
-      await this.loadAllData();
-    } catch (error) {
-      console.error('Error deleting bank:', error);
-      throw error;
-    }
-  }
-
-  async adjustUserBalance(userId, bank, amount, reason, adjustedBy) {
-    try {
-      const user = this.data.users.find(u => u.id === userId);
+      this.setState({ isLoading: true });
+      
+      const { user, profile } = await SupabaseService.signUp(email, password, userData);
+      
       if (user) {
-        const currentBalances = user.bank_balances || {};
-        const updatedBalances = { ...currentBalances, [bank]: amount };
-        await SupabaseService.updateUser(userId, { bank_balances: updatedBalances });
-        await this.loadAllData();
+        // Combine auth user with profile data
+        const newUser = { ...user, ...profile };
+        this.setCurrentUser(newUser);
+        
+        // Set current organization if user has one
+        if (newUser.organization_id) {
+          const org = await OrganizationManager.getOrganization(newUser.organization_id);
+          if (org) {
+            this.setCurrentOrganization(org);
+          }
+        }
+        
+        this.setState({ isAuthenticated: true, isLoading: false });
+        
+        // Log registration event
+        await SupabaseService.createSystemLog({
+          type: 'auth',
+          subtype: 'register',
+          user: newUser.name || newUser.email,
+          reason: 'User registered',
+          organization_id: newUser.organization_id
+        });
+        
+        return { success: true, user: newUser };
+      } else {
+        this.setState({ isAuthenticated: false, isLoading: false });
+        return { success: false, error: 'Registration failed' };
       }
     } catch (error) {
-      console.error('Error adjusting user balance:', error);
-      throw error;
+      console.error('Error registering user:', error);
+      this.setState({ isAuthenticated: false, isLoading: false });
+      return { success: false, error: error.message || 'Registration failed' };
     }
   }
 
-  async adjustCompanyUSDTBalance(platform, amount, reason, adjustedBy) {
+  /**
+   * Switch organization
+   * @param {string} organizationId - Organization ID
+   * @returns {Promise<boolean>} - Whether switch was successful
+   */
+  async switchOrganization(organizationId) {
     try {
-      await SupabaseService.updatePlatformBalance(platform, amount);
-      await this.loadAllData();
-    } catch (error) {
-      console.error('Error adjusting platform balance:', error);
-      throw error;
-    }
-  }
-  
-  // System logs
-  async addSystemLog(logData) {
-    try {
+      // Ensure user is authenticated
+      if (!this.currentUser) {
+        throw new Error('User not authenticated');
+      }
+      
+      // Get organization data
+      const org = await OrganizationManager.getOrganization(organizationId);
+      if (!org) {
+        throw new Error('Organization not found');
+      }
+      
+      // Set current organization
+      this.setCurrentOrganization(org);
+      
+      // Load security settings for organization
+      await SecurityService.loadSecuritySettings(org.id);
+      
+      // Apply white label settings if available
+      const whiteLabel = await OrganizationManager.getWhiteLabelSettings(org.id);
+      if (whiteLabel) {
+        OrganizationManager.applyWhiteLabelSettings(whiteLabel);
+      }
+      
+      // Log organization switch event
       await SupabaseService.createSystemLog({
-        type: logData.type,
-        user: logData.user,
-        target_id: logData.target_id,
-        reason: logData.reason,
-        old_value: logData.old_value,
-        new_value: logData.new_value,
+        type: 'organization',
+        subtype: 'switch',
+        user: this.currentUser.name || this.currentUser.email,
+        reason: `Switched to organization: ${org.name}`,
+        organization_id: org.id
       });
-      await this.loadAllData();
+      
+      return true;
     } catch (error) {
-      console.error('Error creating system log:', error);
+      console.error('Error switching organization:', error);
+      return false;
     }
   }
 
-  // System settings
-  async updateSystemSettings(settings) {
-    try {
-      await SupabaseService.updateSystemSettings(settings);
-      await this.loadAllData();
-    } catch (error) {
-      console.error('Error updating system settings:', error);
-      throw error;
+  /**
+   * Add state change listener
+   * @param {string} type - Listener type ('user', 'organization', 'state')
+   * @param {Function} callback - Callback function
+   * @returns {Function} - Function to remove listener
+   */
+  addListener(type, callback) {
+    if (!this.listeners[type]) {
+      this.listeners[type] = [];
     }
+    
+    this.listeners[type].push(callback);
+    
+    return () => {
+      this.listeners[type] = this.listeners[type].filter(cb => cb !== callback);
+    };
+  }
+
+  /**
+   * Notify listeners of state change
+   * @param {string} type - Listener type ('user', 'organization', 'state')
+   * @param {*} data - Data to pass to listeners
+   */
+  notifyListeners(type, data) {
+    if (!this.listeners[type]) return;
+    
+    this.listeners[type].forEach(callback => {
+      try {
+        callback(data);
+      } catch (error) {
+        console.error(`Error in ${type} listener:`, error);
+      }
+    });
+  }
+
+  /**
+   * Set selected tab
+   * @param {string} tab - Tab name
+   */
+  setSelectedTab(tab) {
+    this.setState({ selectedTab: tab });
+  }
+
+  /**
+   * Get selected tab
+   * @returns {string} - Selected tab
+   */
+  getSelectedTab() {
+    return this.state.selectedTab;
   }
 }
 

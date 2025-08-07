@@ -1,405 +1,367 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import SafeIcon from '../../common/SafeIcon';
 import * as FiIcons from 'react-icons/fi';
-import { toastManager } from '../common/Toast';
-import supabase from '../../lib/supabase';
+import SafeIcon from '../../common/SafeIcon';
+import { AppStateManager } from '../../services/AppStateManager';
+import { SupabaseService } from '../../services/SupabaseService';
+import { toast } from 'react-toastify';
 
-const { FiUpload, FiSave, FiEye, FiRefreshCw } = FiIcons;
-
-const BrandingSettings = ({ currentUser }) => {
-  const [settings, setSettings] = useState({
-    favicon_url: null,
-    logo_url: null,
-    primary_color_light: '#2563eb',
-    primary_color_dark: '#3b82f6',
-    company_name: 'Coinmate'
+const BrandingSettings = () => {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [currentOrg, setCurrentOrg] = useState(null);
+  const [formData, setFormData] = useState({
+    name: '',
+    logo_url: '',
+    primary_color: '#3B82F6',
+    secondary_color: '#1E40AF',
+    accent_color: '#60A5FA'
   });
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [previewMode, setPreviewMode] = useState(false);
-  const [uploadingFavicon, setUploadingFavicon] = useState(false);
-  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [preview, setPreview] = useState(false);
 
   useEffect(() => {
-    loadSettings();
+    const loadData = async () => {
+      try {
+        const user = AppStateManager.getCurrentUser();
+        setCurrentUser(user);
+        
+        const org = AppStateManager.getCurrentOrganization();
+        if (org) {
+          setCurrentOrg(org);
+          setFormData({
+            name: org.name,
+            logo_url: org.logo_url || '',
+            primary_color: org.primary_color || '#3B82F6',
+            secondary_color: org.secondary_color || '#1E40AF',
+            accent_color: org.accent_color || '#60A5FA'
+          });
+        }
+      } catch (error) {
+        console.error('Error loading data:', error);
+        toast.error('Failed to load organization data');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadData();
   }, []);
 
-  const loadSettings = async () => {
-    try {
-      setIsLoading(true);
-      const { data, error } = await supabase
-        .from('branding_settings')
-        .select('*')
-        .limit(1)
-        .single();
-
-      if (error && error.code !== 'PGRST116') {
-        console.error('Error loading branding settings:', error);
-        toastManager.error('Failed to load branding settings');
-      }
-
-      if (data) {
-        setSettings(data);
-      }
-    } catch (error) {
-      console.error('Error loading branding settings:', error);
-      toastManager.error('Failed to load branding settings');
-    } finally {
-      setIsLoading(false);
-    }
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData({
+      ...formData,
+      [name]: value
+    });
   };
 
-  const handleFileUpload = async (file, type) => {
-    if (!file) return;
-
-    const setUploading = type === 'favicon' ? setUploadingFavicon : setUploadingLogo;
-    setUploading(true);
-
-    try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${type}_${Date.now()}.${fileExt}`;
-      const filePath = `branding/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('assets')
-        .upload(filePath, file);
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('assets')
-        .getPublicUrl(filePath);
-
-      setSettings(prev => ({
-        ...prev,
-        [`${type}_url`]: publicUrl
-      }));
-
-      toastManager.success(`${type.charAt(0).toUpperCase() + type.slice(1)} uploaded successfully`);
-    } catch (error) {
-      console.error(`Error uploading ${type}:`, error);
-      toastManager.error(`Failed to upload ${type}`);
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleColorChange = (colorType, value) => {
-    setSettings(prev => ({
-      ...prev,
-      [colorType]: value
-    }));
-  };
-
-  const applyPreview = () => {
-    const root = document.documentElement;
-    root.style.setProperty('--color-primary-500', settings.primary_color_light);
-    root.style.setProperty('--color-primary-600', settings.primary_color_light);
-    root.style.setProperty('--color-primary-700', settings.primary_color_dark);
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
     
-    if (settings.favicon_url) {
-      const favicon = document.querySelector('link[rel="icon"]');
-      if (favicon) {
-        favicon.href = settings.favicon_url;
-      }
-    }
-  };
-
-  const handlePreview = () => {
-    setPreviewMode(!previewMode);
-    if (!previewMode) {
-      applyPreview();
-      toastManager.info('Preview mode enabled - changes are temporary');
-    } else {
-      window.location.reload(); // Reset to original
-    }
-  };
-
-  const handleSave = async () => {
-    if (!currentUser || !['super_admin', 'admin'].includes(currentUser.role)) {
-      toastManager.error('Insufficient permissions to save branding settings');
-      return;
-    }
-
-    setIsSaving(true);
     try {
-      const { error } = await supabase
-        .from('branding_settings')
-        .upsert({
-          ...settings,
-          updated_at: new Date().toISOString()
-        });
-
-      if (error) throw error;
-
-      // Apply changes permanently
-      applyPreview();
+      // Organization name cannot be changed, so exclude it
+      const { name, ...updateData } = formData;
       
-      // Update document title
-      document.title = settings.company_name;
-
-      toastManager.success('Branding settings saved successfully', {
-        action: {
-          label: 'Reload Page',
-          onClick: () => window.location.reload()
-        }
+      await SupabaseService.updateOrganization(currentOrg.id, updateData);
+      
+      // Update current organization in AppStateManager
+      const updatedOrg = { ...currentOrg, ...updateData };
+      await AppStateManager.setCurrentOrganization(updatedOrg);
+      setCurrentOrg(updatedOrg);
+      
+      // Create system log
+      await SupabaseService.createSystemLog({
+        type: 'branding_update',
+        user: currentUser.name,
+        reason: 'Updated organization branding',
+        organization_id: currentOrg.id
       });
+      
+      toast.success('Branding settings updated successfully');
+      
+      // Apply theme changes immediately
+      document.documentElement.style.setProperty('--primary-color', updateData.primary_color);
+      document.documentElement.style.setProperty('--secondary-color', updateData.secondary_color);
+      document.documentElement.style.setProperty('--accent-color', updateData.accent_color);
     } catch (error) {
-      console.error('Error saving branding settings:', error);
-      toastManager.error('Failed to save branding settings');
+      console.error('Error updating branding:', error);
+      toast.error('Failed to update branding settings');
     } finally {
-      setIsSaving(false);
+      setSaving(false);
     }
   };
 
-  if (isLoading) {
+  const togglePreview = () => {
+    setPreview(!preview);
+    
+    if (!preview) {
+      // Store current theme
+      const currentPrimary = getComputedStyle(document.documentElement).getPropertyValue('--primary-color');
+      const currentSecondary = getComputedStyle(document.documentElement).getPropertyValue('--secondary-color');
+      const currentAccent = getComputedStyle(document.documentElement).getPropertyValue('--accent-color');
+      
+      // Apply preview theme
+      document.documentElement.style.setProperty('--primary-color', formData.primary_color);
+      document.documentElement.style.setProperty('--secondary-color', formData.secondary_color);
+      document.documentElement.style.setProperty('--accent-color', formData.accent_color);
+      
+      // Store original values for reset
+      document.documentElement.dataset.originalPrimary = currentPrimary;
+      document.documentElement.dataset.originalSecondary = currentSecondary;
+      document.documentElement.dataset.originalAccent = currentAccent;
+    } else {
+      // Restore original theme
+      document.documentElement.style.setProperty('--primary-color', document.documentElement.dataset.originalPrimary);
+      document.documentElement.style.setProperty('--secondary-color', document.documentElement.dataset.originalSecondary);
+      document.documentElement.style.setProperty('--accent-color', document.documentElement.dataset.originalAccent);
+    }
+  };
+
+  if (loading) {
     return (
-      <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-600"></div>
+      <div className="flex items-center justify-center h-full">
+        <SafeIcon icon={FiIcons.FiLoader} className="animate-spin text-3xl text-blue-500" />
+      </div>
+    );
+  }
+
+  if (!currentUser || !['admin', 'super_admin'].includes(currentUser.role)) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full p-8">
+        <SafeIcon icon={FiIcons.FiLock} className="text-5xl text-gray-400 mb-4" />
+        <h2 className="text-2xl font-bold text-gray-700 mb-2">Access Restricted</h2>
+        <p className="text-gray-500 text-center max-w-md">
+          You don't have permission to access the Branding settings.
+          This feature is available only to Administrators.
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="container mx-auto px-4 py-6">
+      <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-            Branding Settings
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400">
-            Customize your application's appearance and branding
-          </p>
+          <h1 className="text-2xl font-bold text-gray-800">Branding Settings</h1>
+          <p className="text-gray-600">Customize the appearance of your organization</p>
         </div>
-        <div className="flex items-center space-x-3">
-          <button
-            onClick={handlePreview}
-            className={`btn-secondary flex items-center space-x-2 ${previewMode ? 'bg-yellow-100 dark:bg-yellow-900' : ''}`}
-          >
-            <SafeIcon icon={FiEye} className="w-4 h-4" />
-            <span>{previewMode ? 'Exit Preview' : 'Preview'}</span>
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={isSaving}
-            className="btn-primary flex items-center space-x-2"
-          >
-            <SafeIcon icon={isSaving ? FiRefreshCw : FiSave} className={`w-4 h-4 ${isSaving ? 'animate-spin' : ''}`} />
-            <span>{isSaving ? 'Saving...' : 'Save Changes'}</span>
-          </button>
-        </div>
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          className={`px-4 py-2 rounded-md flex items-center ${
+            preview ? 'bg-gray-200 text-gray-700' : 'bg-blue-100 text-blue-700'
+          }`}
+          onClick={togglePreview}
+        >
+          <SafeIcon icon={preview ? FiIcons.FiEyeOff : FiIcons.FiEye} className="mr-2" />
+          {preview ? 'Exit Preview' : 'Preview Changes'}
+        </motion.button>
       </div>
 
-      {/* Preview Warning */}
-      {previewMode && (
-        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
-          <div className="flex items-center space-x-2">
-            <SafeIcon icon={FiEye} className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />
-            <p className="text-yellow-800 dark:text-yellow-200 font-medium">
-              Preview Mode Active
-            </p>
-          </div>
-          <p className="text-yellow-700 dark:text-yellow-300 text-sm mt-1">
-            Changes are temporary. Click "Save Changes" to apply permanently.
-          </p>
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Logo and Favicon */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="card p-6"
-        >
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-            Logo & Favicon
-          </h3>
-          
-          <div className="space-y-6">
-            {/* Company Name */}
+      <div className="bg-white rounded-lg shadow-md overflow-hidden">
+        <form onSubmit={handleSubmit} className="p-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Company Name
-              </label>
-              <input
-                type="text"
-                value={settings.company_name}
-                onChange={(e) => setSettings(prev => ({ ...prev, company_name: e.target.value }))}
-                className="input-field"
-                placeholder="Enter company name"
-              />
-            </div>
-
-            {/* Favicon Upload */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Favicon (32x32 PNG/ICO)
-              </label>
-              <div className="flex items-center space-x-4">
-                {settings.favicon_url && (
-                  <img
-                    src={settings.favicon_url}
-                    alt="Favicon"
-                    className="w-8 h-8 rounded"
-                  />
-                )}
-                <label className="btn-secondary cursor-pointer flex items-center space-x-2">
-                  <SafeIcon icon={uploadingFavicon ? FiRefreshCw : FiUpload} className={`w-4 h-4 ${uploadingFavicon ? 'animate-spin' : ''}`} />
-                  <span>{uploadingFavicon ? 'Uploading...' : 'Upload Favicon'}</span>
-                  <input
-                    type="file"
-                    accept=".png,.ico,.jpg,.jpeg"
-                    onChange={(e) => handleFileUpload(e.target.files[0], 'favicon')}
-                    className="hidden"
-                    disabled={uploadingFavicon}
-                  />
-                </label>
-              </div>
-            </div>
-
-            {/* Logo Upload */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Logo (Recommended: 200x50 PNG)
-              </label>
-              <div className="flex items-center space-x-4">
-                {settings.logo_url && (
-                  <img
-                    src={settings.logo_url}
-                    alt="Logo"
-                    className="h-12 max-w-48 object-contain"
-                  />
-                )}
-                <label className="btn-secondary cursor-pointer flex items-center space-x-2">
-                  <SafeIcon icon={uploadingLogo ? FiRefreshCw : FiUpload} className={`w-4 h-4 ${uploadingLogo ? 'animate-spin' : ''}`} />
-                  <span>{uploadingLogo ? 'Uploading...' : 'Upload Logo'}</span>
-                  <input
-                    type="file"
-                    accept=".png,.jpg,.jpeg,.svg"
-                    onChange={(e) => handleFileUpload(e.target.files[0], 'logo')}
-                    className="hidden"
-                    disabled={uploadingLogo}
-                  />
-                </label>
-              </div>
-            </div>
-          </div>
-        </motion.div>
-
-        {/* Color Scheme */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="card p-6"
-        >
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-            Color Scheme
-          </h3>
-          
-          <div className="space-y-6">
-            {/* Primary Color Light */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Primary Color (Light Mode)
-              </label>
-              <div className="flex items-center space-x-4">
-                <input
-                  type="color"
-                  value={settings.primary_color_light}
-                  onChange={(e) => handleColorChange('primary_color_light', e.target.value)}
-                  className="w-12 h-12 rounded border border-gray-300 dark:border-gray-600 cursor-pointer"
-                />
+              <h2 className="text-lg font-semibold mb-4">Organization Details</h2>
+              
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Organization Name</label>
                 <input
                   type="text"
-                  value={settings.primary_color_light}
-                  onChange={(e) => handleColorChange('primary_color_light', e.target.value)}
-                  className="input-field font-mono"
-                  placeholder="#2563eb"
+                  name="name"
+                  value={formData.name}
+                  className="w-full px-3 py-2 border border-gray-300 bg-gray-100 rounded-md text-gray-600 cursor-not-allowed"
+                  disabled
                 />
+                <p className="text-xs text-gray-500 mt-1">
+                  Organization name cannot be changed. Contact support if you need to rename your organization.
+                </p>
               </div>
-            </div>
-
-            {/* Primary Color Dark */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Primary Color (Dark Mode)
-              </label>
-              <div className="flex items-center space-x-4">
-                <input
-                  type="color"
-                  value={settings.primary_color_dark}
-                  onChange={(e) => handleColorChange('primary_color_dark', e.target.value)}
-                  className="w-12 h-12 rounded border border-gray-300 dark:border-gray-600 cursor-pointer"
-                />
-                <input
-                  type="text"
-                  value={settings.primary_color_dark}
-                  onChange={(e) => handleColorChange('primary_color_dark', e.target.value)}
-                  className="input-field font-mono"
-                  placeholder="#3b82f6"
-                />
+              
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Logo URL</label>
+                <div className="flex">
+                  <input
+                    type="url"
+                    name="logo_url"
+                    value={formData.logo_url}
+                    onChange={handleInputChange}
+                    placeholder="https://example.com/logo.png"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Enter a valid image URL. Recommended size: 200x50px.
+                </p>
               </div>
-            </div>
-
-            {/* Color Preview */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Preview
-              </label>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Light Mode</p>
-                  <div className="bg-white border border-gray-200 rounded-lg p-4">
-                    <button
-                      className="px-4 py-2 rounded-lg text-white font-medium"
-                      style={{ backgroundColor: settings.primary_color_light }}
-                    >
-                      Primary Button
-                    </button>
+              
+              {formData.logo_url && (
+                <div className="mb-4 p-4 border border-dashed border-gray-300 rounded-md">
+                  <p className="text-sm font-medium text-gray-700 mb-2">Logo Preview</p>
+                  <div className="flex justify-center bg-white p-4 rounded">
+                    <img 
+                      src={formData.logo_url} 
+                      alt="Organization Logo" 
+                      className="max-h-16 object-contain"
+                      onError={(e) => {
+                        e.target.onerror = null;
+                        e.target.src = 'https://via.placeholder.com/200x50?text=Invalid+Image+URL';
+                      }}
+                    />
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Dark Mode</p>
-                  <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
-                    <button
-                      className="px-4 py-2 rounded-lg text-white font-medium"
-                      style={{ backgroundColor: settings.primary_color_dark }}
-                    >
-                      Primary Button
-                    </button>
-                  </div>
+              )}
+            </div>
+            
+            <div>
+              <h2 className="text-lg font-semibold mb-4">Theme Colors</h2>
+              
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Primary Color</label>
+                <div className="flex items-center">
+                  <input
+                    type="color"
+                    name="primary_color"
+                    value={formData.primary_color}
+                    onChange={handleInputChange}
+                    className="w-10 h-10 p-0 border-0 rounded mr-3"
+                  />
+                  <input
+                    type="text"
+                    value={formData.primary_color}
+                    onChange={(e) => setFormData({ ...formData, primary_color: e.target.value })}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md"
+                  />
                 </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Used for primary buttons, links, and active states.
+                </p>
+              </div>
+              
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Secondary Color</label>
+                <div className="flex items-center">
+                  <input
+                    type="color"
+                    name="secondary_color"
+                    value={formData.secondary_color}
+                    onChange={handleInputChange}
+                    className="w-10 h-10 p-0 border-0 rounded mr-3"
+                  />
+                  <input
+                    type="text"
+                    value={formData.secondary_color}
+                    onChange={(e) => setFormData({ ...formData, secondary_color: e.target.value })}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md"
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Used for header, footer, and secondary elements.
+                </p>
+              </div>
+              
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Accent Color</label>
+                <div className="flex items-center">
+                  <input
+                    type="color"
+                    name="accent_color"
+                    value={formData.accent_color}
+                    onChange={handleInputChange}
+                    className="w-10 h-10 p-0 border-0 rounded mr-3"
+                  />
+                  <input
+                    type="text"
+                    value={formData.accent_color}
+                    onChange={(e) => setFormData({ ...formData, accent_color: e.target.value })}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md"
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Used for highlights, notifications, and call-to-action elements.
+                </p>
               </div>
             </div>
           </div>
-        </motion.div>
+          
+          <div className="mt-8 p-4 bg-gray-50 rounded-md">
+            <h3 className="text-md font-semibold mb-2">Theme Preview</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div 
+                className="p-4 rounded-md text-white flex items-center justify-center"
+                style={{ backgroundColor: formData.primary_color }}
+              >
+                Primary
+              </div>
+              <div 
+                className="p-4 rounded-md text-white flex items-center justify-center"
+                style={{ backgroundColor: formData.secondary_color }}
+              >
+                Secondary
+              </div>
+              <div 
+                className="p-4 rounded-md text-white flex items-center justify-center"
+                style={{ backgroundColor: formData.accent_color }}
+              >
+                Accent
+              </div>
+            </div>
+            <div className="mt-4 flex gap-4">
+              <button 
+                type="button"
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+              >
+                Normal Button
+              </button>
+              <button 
+                type="button"
+                className="px-4 py-2 rounded-md text-white"
+                style={{ backgroundColor: formData.primary_color }}
+              >
+                Primary Button
+              </button>
+              <button 
+                type="button"
+                className="px-4 py-2 rounded-md text-white"
+                style={{ backgroundColor: formData.secondary_color }}
+              >
+                Secondary Button
+              </button>
+              <button 
+                type="button"
+                className="px-4 py-2 rounded-md text-white"
+                style={{ backgroundColor: formData.accent_color }}
+              >
+                Accent Button
+              </button>
+            </div>
+          </div>
+          
+          <div className="mt-6 flex justify-end">
+            <motion.button
+              type="submit"
+              disabled={saving}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center"
+            >
+              {saving ? (
+                <>
+                  <SafeIcon icon={FiIcons.FiLoader} className="animate-spin mr-2" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <SafeIcon icon={FiIcons.FiSave} className="mr-2" />
+                  Save Changes
+                </>
+              )}
+            </motion.button>
+          </div>
+        </form>
       </div>
-
-      {/* CSS Variables Info */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-        className="card p-6"
-      >
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-          CSS Variables
-        </h3>
-        <p className="text-gray-600 dark:text-gray-400 mb-4">
-          These CSS variables will be automatically updated when you save changes:
-        </p>
-        <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-          <code className="text-sm text-gray-800 dark:text-gray-200">
-            <div>--color-primary-500: {settings.primary_color_light}</div>
-            <div>--color-primary-600: {settings.primary_color_light}</div>
-            <div>--color-primary-700: {settings.primary_color_dark}</div>
-          </code>
-        </div>
-      </motion.div>
     </div>
   );
 };

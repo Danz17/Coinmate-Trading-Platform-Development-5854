@@ -1,326 +1,332 @@
+import { SupabaseService } from './SupabaseService';
+import { AppStateManager } from './AppStateManager';
+
 class SecurityServiceClass {
   constructor() {
-    this.sessionTimeout = 30 * 60 * 1000; // 30 minutes
-    this.maxFailedAttempts = 5;
-    this.lockoutDuration = 15 * 60 * 1000; // 15 minutes
-    this.securityLogs = [];
+    this.settings = {
+      passwordPolicy: {
+        minLength: 8,
+        requireUppercase: true,
+        requireLowercase: true,
+        requireNumbers: true,
+        requireSpecialChars: false
+      },
+      sessionPolicy: {
+        maxInactiveTime: 30, // minutes
+        maxSessionDuration: 24 // hours
+      },
+      apiPolicy: {
+        rateLimiting: true,
+        maxRequestsPerMinute: 60
+      },
+      dataPolicy: {
+        encryptSensitiveData: true,
+        dataRetentionPeriod: 365 // days
+      },
+      accessPolicy: {
+        allowedIPs: [],
+        restrictToOrganizationIPs: false
+      }
+    };
+    this.inactivityTimer = null;
+    this.isInitialized = false;
+    this.currentOrganizationId = null;
   }
 
-  // Track login attempts
-  trackLoginAttempt(email, success, ip, userAgent) {
-    const attempt = {
-      email,
-      success,
-      ip,
-      userAgent,
-      timestamp: new Date().toISOString(),
-      id: Date.now()
-    };
-
-    this.securityLogs.push(attempt);
+  /**
+   * Initialize security service
+   */
+  initialize() {
+    if (this.isInitialized) return;
     
-    // Keep only last 1000 logs
-    if (this.securityLogs.length > 1000) {
-      this.securityLogs = this.securityLogs.slice(-1000);
+    // Get current organization
+    const organization = AppStateManager.getCurrentOrganization();
+    if (organization) {
+      this.currentOrganizationId = organization.id;
+      this.loadSecuritySettings(organization.id);
     }
-
-    // Check for suspicious activity
-    if (!success) {
-      this.checkFailedAttempts(email, ip);
-    }
-
-    return attempt;
-  }
-
-  // Check for multiple failed attempts
-  checkFailedAttempts(email, ip) {
-    const recentAttempts = this.securityLogs.filter(log => 
-      (log.email === email || log.ip === ip) &&
-      !log.success &&
-      new Date(log.timestamp) > new Date(Date.now() - this.lockoutDuration)
-    );
-
-    if (recentAttempts.length >= this.maxFailedAttempts) {
-      this.triggerSecurityAlert({
-        type: 'Multiple Failed Login Attempts',
-        email,
-        ip,
-        attempts: recentAttempts.length,
-        timeframe: '15 minutes'
-      });
-      return true; // Account should be locked
-    }
-
-    return false;
-  }
-
-  // Validate session
-  validateSession(user) {
-    if (!user || !user.login_time) return false;
-
-    const loginTime = new Date(user.login_time);
-    const now = new Date();
-    const sessionAge = now - loginTime;
-
-    if (sessionAge > this.sessionTimeout) {
-      this.triggerSecurityAlert({
-        type: 'Session Timeout',
-        user: user.name,
-        sessionAge: Math.floor(sessionAge / 60000) + ' minutes'
-      });
-      return false;
-    }
-
-    return true;
-  }
-
-  // Check for suspicious IP changes
-  checkIPChange(user, currentIP) {
-    const userLogs = this.securityLogs.filter(log => 
-      log.email === user.email && 
-      log.success &&
-      new Date(log.timestamp) > new Date(Date.now() - 24 * 60 * 60 * 1000) // Last 24 hours
-    );
-
-    const recentIPs = [...new Set(userLogs.map(log => log.ip))];
     
-    if (recentIPs.length > 1 && !recentIPs.includes(currentIP)) {
-      this.triggerSecurityAlert({
-        type: 'Suspicious IP Change',
-        user: user.name,
-        email: user.email,
-        previousIPs: recentIPs,
-        currentIP
-      });
-    }
-  }
-
-  // Validate transaction security
-  validateTransaction(transaction, user, ip) {
-    const risks = [];
-
-    // Large transaction check
-    if (transaction.php_amount > 100000) {
-      risks.push({
-        level: 'HIGH',
-        type: 'Large Transaction',
-        details: `Transaction amount: ₱${transaction.php_amount.toLocaleString()}`
-      });
-    }
-
-    // Off-hours transaction
-    const hour = new Date().getHours();
-    if (hour < 6 || hour > 22) {
-      risks.push({
-        level: 'MEDIUM',
-        type: 'Off-hours Transaction',
-        details: `Transaction at ${hour}:00`
-      });
-    }
-
-    // Rate deviation check
-    const marketRate = 56.25; // This should come from ExchangeRateService
-    const deviation = Math.abs((transaction.rate - marketRate) / marketRate) * 100;
-    if (deviation > 10) {
-      risks.push({
-        level: 'HIGH',
-        type: 'Rate Deviation',
-        details: `Rate deviates ${deviation.toFixed(1)}% from market`
-      });
-    }
-
-    // Rapid transactions check
-    const recentTransactions = this.getRecentTransactions(user.id, 10 * 60 * 1000); // Last 10 minutes
-    if (recentTransactions.length > 5) {
-      risks.push({
-        level: 'MEDIUM',
-        type: 'Rapid Transactions',
-        details: `${recentTransactions.length} transactions in 10 minutes`
-      });
-    }
-
-    if (risks.length > 0) {
-      this.triggerSecurityAlert({
-        type: 'Transaction Risk Assessment',
-        user: user.name,
-        transaction: {
-          type: transaction.type,
-          amount: transaction.php_amount,
-          rate: transaction.rate
-        },
-        risks,
-        ip
-      });
-    }
-
-    return risks;
-  }
-
-  // Get recent transactions (mock - should integrate with AppStateManager)
-  getRecentTransactions(userId, timeframe) {
-    // This should be implemented to get actual recent transactions
-    return [];
-  }
-
-  // Trigger security alert
-  triggerSecurityAlert(alert) {
-    const securityAlert = {
-      ...alert,
-      timestamp: new Date().toISOString(),
-      id: Date.now()
-    };
-
-    console.warn('SECURITY ALERT:', securityAlert);
-
-    // Send to notification service
-    if (typeof NotificationService !== 'undefined') {
-      NotificationService.notifySecurityAlert(securityAlert);
-    }
-
-    // Store in security logs
-    this.securityLogs.push({
-      type: 'SECURITY_ALERT',
-      alert: securityAlert,
-      timestamp: securityAlert.timestamp
-    });
-  }
-
-  // Get security logs for admin view
-  getSecurityLogs(limit = 100) {
-    return this.securityLogs
-      .filter(log => log.type === 'SECURITY_ALERT' || !log.success)
-      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-      .slice(0, limit);
-  }
-
-  // Validate password strength
-  validatePasswordStrength(password) {
-    const requirements = {
-      minLength: password.length >= 8,
-      hasUppercase: /[A-Z]/.test(password),
-      hasLowercase: /[a-z]/.test(password),
-      hasNumbers: /\d/.test(password),
-      hasSpecialChars: /[!@#$%^&*(),.?":{}|<>]/.test(password)
-    };
-
-    const score = Object.values(requirements).filter(Boolean).length;
-    
-    return {
-      score,
-      requirements,
-      strength: score < 3 ? 'weak' : score < 5 ? 'medium' : 'strong',
-      isValid: score >= 4
-    };
-  }
-
-  // Generate 2FA token (mock implementation)
-  generate2FAToken(user) {
-    // In a real implementation, this would integrate with an authenticator app
-    return Math.floor(100000 + Math.random() * 900000).toString();
-  }
-
-  // Validate 2FA token
-  validate2FAToken(user, token) {
-    // Mock validation - in production this would verify against the user's 2FA device
-    return token && token.length === 6 && /^\d+$/.test(token);
-  }
-
-  // Check for account takeover indicators
-  checkAccountTakeover(user, currentSession) {
-    const indicators = [];
-
-    // Multiple concurrent sessions
-    const activeSessions = this.getActiveSessions(user.id);
-    if (activeSessions.length > 2) {
-      indicators.push('Multiple concurrent sessions');
-    }
-
-    // Unusual activity patterns
-    const recentActivity = this.getRecentActivity(user.id);
-    if (this.detectUnusualActivity(recentActivity, user.normalActivity)) {
-      indicators.push('Unusual activity pattern');
-    }
-
-    // Password change without email verification
-    if (user.passwordChangedRecently && !user.emailVerified) {
-      indicators.push('Recent password change without verification');
-    }
-
-    if (indicators.length > 0) {
-      this.triggerSecurityAlert({
-        type: 'Potential Account Takeover',
-        user: user.name,
-        indicators
-      });
-    }
-
-    return indicators;
-  }
-
-  // Mock methods for session and activity tracking
-  getActiveSessions(userId) {
-    return []; // Should return actual active sessions
-  }
-
-  getRecentActivity(userId) {
-    return []; // Should return user's recent activity
-  }
-
-  detectUnusualActivity(recentActivity, normalActivity) {
-    return false; // Should implement ML-based anomaly detection
-  }
-
-  // Generate security report
-  generateSecurityReport(timeframe = '24h') {
-    const hours = timeframe === '24h' ? 24 : parseInt(timeframe);
-    const since = new Date(Date.now() - hours * 60 * 60 * 1000);
-
-    const recentLogs = this.securityLogs.filter(log => 
-      new Date(log.timestamp) > since
-    );
-
-    const report = {
-      timeframe,
-      totalEvents: recentLogs.length,
-      loginAttempts: recentLogs.filter(log => log.email).length,
-      failedLogins: recentLogs.filter(log => log.email && !log.success).length,
-      securityAlerts: recentLogs.filter(log => log.type === 'SECURITY_ALERT').length,
-      uniqueIPs: [...new Set(recentLogs.map(log => log.ip).filter(Boolean))].length,
-      topRisks: this.getTopRisks(recentLogs),
-      recommendations: this.generateRecommendations(recentLogs)
-    };
-
-    return report;
-  }
-
-  getTopRisks(logs) {
-    const risks = {};
-    logs.forEach(log => {
-      if (log.alert && log.alert.type) {
-        risks[log.alert.type] = (risks[log.alert.type] || 0) + 1;
+    // Add organization change listener
+    AppStateManager.addListener('organization', (organization) => {
+      if (organization && this.currentOrganizationId !== organization.id) {
+        this.currentOrganizationId = organization.id;
+        this.loadSecuritySettings(organization.id);
       }
     });
-
-    return Object.entries(risks)
-      .sort(([,a], [,b]) => b - a)
-      .slice(0, 5)
-      .map(([type, count]) => ({ type, count }));
+    
+    // Start inactivity timer
+    this.startInactivityTimer();
+    
+    // Add activity event listeners
+    this.addActivityListeners();
+    
+    this.isInitialized = true;
   }
 
-  generateRecommendations(logs) {
-    const recommendations = [];
-
-    const failedLogins = logs.filter(log => !log.success).length;
-    if (failedLogins > 10) {
-      recommendations.push('Consider implementing CAPTCHA after failed login attempts');
+  /**
+   * Load security settings for organization
+   * @param {string} organizationId - Organization ID
+   */
+  async loadSecuritySettings(organizationId) {
+    try {
+      const systemSettings = await SupabaseService.getSystemSettings(organizationId);
+      
+      if (systemSettings && systemSettings.security) {
+        this.settings = {
+          ...this.settings,
+          ...systemSettings.security
+        };
+        
+        // Update inactivity timer
+        this.resetInactivityTimer();
+      }
+    } catch (error) {
+      console.error('Error loading security settings:', error);
     }
+  }
 
-    const uniqueIPs = [...new Set(logs.map(log => log.ip).filter(Boolean))].length;
-    if (uniqueIPs > 50) {
-      recommendations.push('High number of unique IPs detected - consider IP-based rate limiting');
+  /**
+   * Add activity event listeners
+   */
+  addActivityListeners() {
+    // Reset timer on user activity
+    ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'].forEach(eventName => {
+      document.addEventListener(eventName, () => this.resetInactivityTimer(), true);
+    });
+    
+    // Add beforeunload event listener
+    window.addEventListener('beforeunload', () => {
+      // Clean up timers
+      if (this.inactivityTimer) {
+        clearTimeout(this.inactivityTimer);
+      }
+    });
+  }
+
+  /**
+   * Start inactivity timer
+   */
+  startInactivityTimer() {
+    this.resetInactivityTimer();
+  }
+
+  /**
+   * Reset inactivity timer
+   */
+  resetInactivityTimer() {
+    if (this.inactivityTimer) {
+      clearTimeout(this.inactivityTimer);
     }
+    
+    // Only start timer if user is authenticated
+    const state = AppStateManager.getState();
+    if (!state.isAuthenticated) return;
+    
+    const maxInactiveTime = this.settings.sessionPolicy.maxInactiveTime || 30;
+    
+    this.inactivityTimer = setTimeout(() => {
+      this.handleInactivityTimeout();
+    }, maxInactiveTime * 60 * 1000);
+  }
 
-    return recommendations;
+  /**
+   * Handle inactivity timeout
+   */
+  async handleInactivityTimeout() {
+    console.log('Session timed out due to inactivity');
+    
+    // Log the user out
+    await AppStateManager.logoutUser();
+    
+    // Show timeout message
+    alert('Your session has expired due to inactivity. Please log in again.');
+  }
+
+  /**
+   * Validate password
+   * @param {string} password - Password to validate
+   * @returns {Object} - Validation result
+   */
+  validatePassword(password) {
+    const policy = this.settings.passwordPolicy;
+    const result = {
+      valid: true,
+      errors: []
+    };
+    
+    // Check minimum length
+    if (password.length < policy.minLength) {
+      result.valid = false;
+      result.errors.push(`Password must be at least ${policy.minLength} characters long`);
+    }
+    
+    // Check for uppercase letters
+    if (policy.requireUppercase && !/[A-Z]/.test(password)) {
+      result.valid = false;
+      result.errors.push('Password must contain at least one uppercase letter');
+    }
+    
+    // Check for lowercase letters
+    if (policy.requireLowercase && !/[a-z]/.test(password)) {
+      result.valid = false;
+      result.errors.push('Password must contain at least one lowercase letter');
+    }
+    
+    // Check for numbers
+    if (policy.requireNumbers && !/[0-9]/.test(password)) {
+      result.valid = false;
+      result.errors.push('Password must contain at least one number');
+    }
+    
+    // Check for special characters
+    if (policy.requireSpecialChars && !/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
+      result.valid = false;
+      result.errors.push('Password must contain at least one special character');
+    }
+    
+    return result;
+  }
+
+  /**
+   * Check if IP is allowed
+   * @param {string} ip - IP address to check
+   * @returns {boolean} - Whether IP is allowed
+   */
+  isIPAllowed(ip) {
+    const policy = this.settings.accessPolicy;
+    
+    // If no IP restrictions, allow all
+    if (!policy.restrictToOrganizationIPs || policy.allowedIPs.length === 0) {
+      return true;
+    }
+    
+    // Check if IP is in allowed list
+    return policy.allowedIPs.includes(ip);
+  }
+
+  /**
+   * Add allowed IP
+   * @param {string} ip - IP address to add
+   */
+  addAllowedIP(ip) {
+    if (!this.settings.accessPolicy.allowedIPs.includes(ip)) {
+      this.settings.accessPolicy.allowedIPs.push(ip);
+      this.saveSettings();
+    }
+  }
+
+  /**
+   * Remove allowed IP
+   * @param {string} ip - IP address to remove
+   */
+  removeAllowedIP(ip) {
+    this.settings.accessPolicy.allowedIPs = this.settings.accessPolicy.allowedIPs.filter(
+      allowedIP => allowedIP !== ip
+    );
+    this.saveSettings();
+  }
+
+  /**
+   * Save security settings
+   */
+  async saveSettings() {
+    try {
+      if (!this.currentOrganizationId) return;
+      
+      const systemSettings = await SupabaseService.getSystemSettings(this.currentOrganizationId);
+      
+      const updatedSettings = {
+        ...systemSettings,
+        security: this.settings
+      };
+      
+      await SupabaseService.saveSystemSettings(this.currentOrganizationId, updatedSettings);
+    } catch (error) {
+      console.error('Error saving security settings:', error);
+    }
+  }
+
+  /**
+   * Update password policy
+   * @param {Object} policy - Password policy
+   */
+  updatePasswordPolicy(policy) {
+    this.settings.passwordPolicy = {
+      ...this.settings.passwordPolicy,
+      ...policy
+    };
+    this.saveSettings();
+  }
+
+  /**
+   * Update session policy
+   * @param {Object} policy - Session policy
+   */
+  updateSessionPolicy(policy) {
+    this.settings.sessionPolicy = {
+      ...this.settings.sessionPolicy,
+      ...policy
+    };
+    
+    // Update inactivity timer
+    this.resetInactivityTimer();
+    
+    this.saveSettings();
+  }
+
+  /**
+   * Update API policy
+   * @param {Object} policy - API policy
+   */
+  updateAPIPolicy(policy) {
+    this.settings.apiPolicy = {
+      ...this.settings.apiPolicy,
+      ...policy
+    };
+    this.saveSettings();
+  }
+
+  /**
+   * Update data policy
+   * @param {Object} policy - Data policy
+   */
+  updateDataPolicy(policy) {
+    this.settings.dataPolicy = {
+      ...this.settings.dataPolicy,
+      ...policy
+    };
+    this.saveSettings();
+  }
+
+  /**
+   * Update access policy
+   * @param {Object} policy - Access policy
+   */
+  updateAccessPolicy(policy) {
+    this.settings.accessPolicy = {
+      ...this.settings.accessPolicy,
+      ...policy
+    };
+    this.saveSettings();
+  }
+
+  /**
+   * Get security settings
+   * @returns {Object} - Security settings
+   */
+  getSettings() {
+    return { ...this.settings };
+  }
+
+  /**
+   * Clean up security service
+   */
+  cleanup() {
+    if (this.inactivityTimer) {
+      clearTimeout(this.inactivityTimer);
+    }
+    
+    this.isInitialized = false;
   }
 }
 

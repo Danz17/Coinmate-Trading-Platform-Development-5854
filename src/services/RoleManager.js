@@ -1,295 +1,403 @@
+import { SupabaseService } from './SupabaseService';
+
 class RoleManagerClass {
   constructor() {
-    this.roles = {
-      super_admin: {
+    this.roles = [
+      {
+        id: 'super_admin',
         name: 'Super Admin',
-        level: 1,
-        permissions: [
-          'all_access',
-          'manage_users',
-          'manage_roles',
-          'manage_system',
-          'view_all_data',
-          'edit_all_data',
-          'delete_all_data',
-          'manage_platforms',
-          'manage_banks',
-          'adjust_balances',
-          'execute_eod',
-          'view_hr_logs',
-          'export_data',
-          'manage_config',
-          'advanced_analytics'
-        ],
-        description: 'Full system access with all privileges',
-        color: 'text-red-600 bg-red-50 border-red-200'
+        description: 'Full system access including white labeling and organization management',
+        permissions: ['*'],
+        color: 'red'
       },
-      admin: {
+      {
+        id: 'admin',
         name: 'Admin',
-        level: 2,
+        description: 'Administrative access to manage users and system settings',
         permissions: [
-          'manage_users',
-          'view_all_data',
-          'edit_transactions',
-          'delete_transactions',
-          'manage_platforms',
-          'manage_banks',
-          'adjust_balances',
-          'execute_eod',
-          'view_hr_logs',
-          'export_data',
-          'trade_all_users',
-          'internal_transfers',
-          'advanced_analytics'
+          'user.read',
+          'user.create',
+          'user.update',
+          'user.delete',
+          'transaction.read',
+          'transaction.create',
+          'transaction.update',
+          'transaction.approve',
+          'transaction.reject',
+          'settings.read',
+          'settings.update',
+          'logs.read',
+          'analytics.read',
+          'analytics.export'
         ],
-        description: 'Administrative access with user and transaction management',
-        color: 'text-purple-600 bg-purple-50 border-purple-200'
+        color: 'purple'
       },
-      supervisor: {
-        name: 'Supervisor',
-        level: 3,
+      {
+        id: 'manager',
+        name: 'Manager',
+        description: 'Access to manage transactions and view reports',
         permissions: [
-          'view_all_data',
-          'edit_own_transactions',
-          'execute_eod',
-          'view_hr_logs',
-          'export_data',
-          'trade_assigned_users',
-          'internal_transfers',
-          'view_analytics',
-          'advanced_analytics'
+          'user.read',
+          'transaction.read',
+          'transaction.create',
+          'transaction.update',
+          'transaction.approve',
+          'transaction.reject',
+          'analytics.read'
         ],
-        description: 'Supervisory access with limited administrative functions',
-        color: 'text-blue-600 bg-blue-50 border-blue-200'
+        color: 'blue'
       },
-      analyst: {
+      {
+        id: 'analyst',
         name: 'Analyst',
-        level: 4,
+        description: 'Access to view and analyze data',
         permissions: [
-          'view_own_data',
-          'trade_own_account',
-          'view_analytics',
-          'export_own_data'
+          'transaction.read',
+          'analytics.read',
+          'analytics.export'
         ],
-        description: 'Basic trading access with limited data visibility',
-        color: 'text-green-600 bg-green-50 border-green-200'
+        color: 'green'
+      },
+      {
+        id: 'trader',
+        name: 'Trader',
+        description: 'Access to create and view transactions',
+        permissions: [
+          'transaction.read',
+          'transaction.create'
+        ],
+        color: 'orange'
+      },
+      {
+        id: 'user',
+        name: 'User',
+        description: 'Basic user access',
+        permissions: [
+          'transaction.read',
+          'transaction.create'
+        ],
+        color: 'gray'
       }
-    };
-
-    this.permissionGroups = {
-      user_management: [
-        'manage_users',
-        'manage_roles',
-        'view_all_users'
-      ],
-      data_access: [
-        'view_all_data',
-        'view_own_data',
-        'edit_all_data',
-        'edit_own_transactions',
-        'delete_all_data'
-      ],
-      trading: [
-        'trade_all_users',
-        'trade_assigned_users',
-        'trade_own_account'
-      ],
-      system: [
-        'manage_system',
-        'manage_config',
-        'manage_platforms',
-        'manage_banks',
-        'adjust_balances'
-      ],
-      operations: [
-        'execute_eod',
-        'internal_transfers',
-        'view_hr_logs'
-      ],
-      analytics: [
-        'view_analytics',
-        'advanced_analytics',
-        'export_data',
-        'export_own_data'
-      ]
-    };
-  }
-
-  // Get all available roles
-  getAllRoles() {
-    return this.roles;
-  }
-
-  // Get role information
-  getRole(roleKey) {
-    return this.roles[roleKey] || null;
-  }
-
-  // Check if a role exists
-  roleExists(roleKey) {
-    return roleKey in this.roles;
-  }
-
-  // Get roles that can be managed by a specific role
-  getManageableRoles(currentRole) {
-    const currentLevel = this.roles[currentRole]?.level || 999;
-    return Object.entries(this.roles)
-      .filter(([, role]) => role.level > currentLevel)
-      .reduce((acc, [key, role]) => {
-        acc[key] = role;
-        return acc;
-      }, {});
-  }
-
-  // Check if user can manage another user's role
-  canManageRole(currentRole, targetRole) {
-    const currentLevel = this.roles[currentRole]?.level || 999;
-    const targetLevel = this.roles[targetRole]?.level || 999;
-    return currentLevel < targetLevel;
-  }
-
-  // Check if user has specific permission
-  hasPermission(userRole, permission) {
-    const role = this.roles[userRole];
-    if (!role) return false;
-
-    // Super admin has all permissions
-    if (role.permissions.includes('all_access')) return true;
-
-    return role.permissions.includes(permission);
-  }
-
-  // Check multiple permissions (user needs ALL of them)
-  hasAllPermissions(userRole, permissions) {
-    return permissions.every(permission => this.hasPermission(userRole, permission));
-  }
-
-  // Check multiple permissions (user needs ANY of them)
-  hasAnyPermission(userRole, permissions) {
-    return permissions.some(permission => this.hasPermission(userRole, permission));
-  }
-
-  // Get all permissions for a role
-  getRolePermissions(roleKey) {
-    const role = this.roles[roleKey];
-    return role ? role.permissions : [];
-  }
-
-  // Get permission groups for display
-  getPermissionGroups() {
-    return this.permissionGroups;
-  }
-
-  // Get all unique permissions
-  getAllPermissions() {
-    const allPermissions = new Set();
-    Object.values(this.roles).forEach(role => {
-      role.permissions.forEach(permission => allPermissions.add(permission));
-    });
-    return Array.from(allPermissions).sort();
-  }
-
-  // Get role hierarchy for display
-  getRoleHierarchy() {
-    return Object.entries(this.roles)
-      .sort(([, a], [, b]) => a.level - b.level)
-      .map(([key, role]) => ({ key, ...role }));
-  }
-
-  // Validate role assignment
-  validateRoleAssignment(assignerRole, targetRole) {
-    if (!this.roleExists(targetRole)) {
-      return { valid: false, error: 'Invalid target role' };
-    }
-
-    if (!this.canManageRole(assignerRole, targetRole)) {
-      return { valid: false, error: 'Insufficient permissions to assign this role' };
-    }
-
-    return { valid: true };
-  }
-
-  // Get role-based menu items
-  getMenuItems(userRole) {
-    const items = [
-      { id: 'dashboard', label: 'Dashboard', icon: 'FiHome', permission: 'view_own_data' },
-      { id: 'trade', label: 'Trade', icon: 'FiTrendingUp', permission: 'trade_own_account' },
-      { id: 'transactions', label: 'Transactions', icon: 'FiList', permission: 'view_own_data' },
-      { id: 'tracker', label: 'Tracker', icon: 'FiBarChart3', permission: 'view_analytics' },
-      { id: 'advanced-analytics', label: 'Advanced Analytics', icon: 'FiActivity', permission: 'advanced_analytics' },
-      { id: 'eod', label: 'End of Day', icon: 'FiSun', permission: 'execute_eod' },
-      { id: 'hr', label: 'HR Tracking', icon: 'FiClock', permission: 'view_hr_logs' },
-      { id: 'getstarted', label: 'Get Started', icon: 'FiPlay', permission: 'view_own_data' },
-      { id: 'admin', label: 'Administration', icon: 'FiSettings', permission: 'manage_users' }
     ];
-
-    return items.filter(item => this.hasPermission(userRole, item.permission));
+    
+    this.customRoles = [];
+    this.isInitialized = false;
   }
 
-  // Check data access level
-  getDataAccessLevel(userRole, targetUserId, currentUserId) {
-    if (this.hasPermission(userRole, 'view_all_data')) {
-      return 'full';
-    }
-
-    if (targetUserId === currentUserId && this.hasPermission(userRole, 'view_own_data')) {
-      return 'own';
-    }
-
-    return 'none';
-  }
-
-  // Get role badge styling
-  getRoleBadge(roleKey) {
-    const role = this.roles[roleKey];
-    if (!role) return { label: 'Unknown', color: 'text-gray-600 bg-gray-50 border-gray-200' };
-
-    return {
-      label: role.name,
-      color: role.color,
-      description: role.description
-    };
-  }
-
-  // Role-based feature flags
-  getFeatureFlags(userRole) {
-    return {
-      canViewAllUsers: this.hasPermission(userRole, 'view_all_data'),
-      canEditUsers: this.hasPermission(userRole, 'manage_users'),
-      canDeleteUsers: this.hasPermission(userRole, 'manage_users'),
-      canManageRoles: this.hasPermission(userRole, 'manage_roles'),
-      canAdjustBalances: this.hasPermission(userRole, 'adjust_balances'),
-      canExecuteEOD: this.hasPermission(userRole, 'execute_eod'),
-      canViewHRLogs: this.hasPermission(userRole, 'view_hr_logs'),
-      canManagePlatforms: this.hasPermission(userRole, 'manage_platforms'),
-      canManageBanks: this.hasPermission(userRole, 'manage_banks'),
-      canInternalTransfer: this.hasPermission(userRole, 'internal_transfers'),
-      canExportData: this.hasPermission(userRole, 'export_data'),
-      canManageConfig: this.hasPermission(userRole, 'manage_config'),
-      canTradeForOthers: this.hasAnyPermission(userRole, ['trade_all_users', 'trade_assigned_users']),
-      canViewAdvancedAnalytics: this.hasPermission(userRole, 'advanced_analytics')
-    };
-  }
-
-  // Update role permissions
-  async updateRolePermissions(editedPermissions, updatedBy) {
+  /**
+   * Initialize role manager
+   * @returns {Promise<boolean>} - Whether initialization was successful
+   */
+  async initialize() {
+    if (this.isInitialized) return true;
+    
     try {
-      // For each role, update the permissions in our local state
-      Object.entries(editedPermissions).forEach(([roleKey, permissions]) => {
-        if (roleKey !== 'super_admin' && this.roles[roleKey]) {
-          this.roles[roleKey].permissions = permissions;
-        }
-      });
-
-      // Log the permission change
-      console.log(`Role permissions updated by ${updatedBy}`);
-
-      // Return a resolved promise after updating the local state
-      return Promise.resolve(true);
+      // Load custom roles
+      await this.loadCustomRoles();
+      this.isInitialized = true;
+      return true;
     } catch (error) {
-      console.error('Error updating role permissions:', error);
-      return Promise.reject(error);
+      console.error('Error initializing role manager:', error);
+      return false;
     }
+  }
+
+  /**
+   * Load custom roles from database
+   */
+  async loadCustomRoles() {
+    try {
+      const { data, error } = await SupabaseService.getCustomRoles();
+      
+      if (error) throw error;
+      
+      this.customRoles = data || [];
+    } catch (error) {
+      console.error('Error loading custom roles:', error);
+      this.customRoles = [];
+    }
+  }
+
+  /**
+   * Get all roles
+   * @returns {Array} - Array of roles
+   */
+  getAllRoles() {
+    return [...this.roles, ...this.customRoles];
+  }
+
+  /**
+   * Get role by ID
+   * @param {string} roleId - Role ID
+   * @returns {Object|null} - Role data
+   */
+  getRole(roleId) {
+    const systemRole = this.roles.find(role => role.id === roleId);
+    if (systemRole) return systemRole;
+    
+    const customRole = this.customRoles.find(role => role.id === roleId);
+    return customRole || null;
+  }
+
+  /**
+   * Get role name
+   * @param {string} roleId - Role ID
+   * @returns {string} - Role name
+   */
+  getRoleName(roleId) {
+    const role = this.getRole(roleId);
+    return role ? role.name : roleId;
+  }
+
+  /**
+   * Get role color
+   * @param {string} roleId - Role ID
+   * @returns {string} - Role color
+   */
+  getRoleColor(roleId) {
+    const role = this.getRole(roleId);
+    return role ? role.color : 'gray';
+  }
+
+  /**
+   * Create custom role
+   * @param {Object} roleData - Role data
+   * @returns {Promise<Object>} - New role data
+   */
+  async createCustomRole(roleData) {
+    try {
+      const { data, error } = await SupabaseService.createCustomRole(roleData);
+      
+      if (error) throw error;
+      
+      if (data) {
+        this.customRoles.push(data);
+      }
+      
+      return data;
+    } catch (error) {
+      console.error('Error creating custom role:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update custom role
+   * @param {string} roleId - Role ID
+   * @param {Object} updates - Role updates
+   * @returns {Promise<Object>} - Updated role
+   */
+  async updateCustomRole(roleId, updates) {
+    try {
+      const { data, error } = await SupabaseService.updateCustomRole(roleId, updates);
+      
+      if (error) throw error;
+      
+      if (data) {
+        // Update in local cache
+        const index = this.customRoles.findIndex(role => role.id === roleId);
+        if (index !== -1) {
+          this.customRoles[index] = data;
+        }
+      }
+      
+      return data;
+    } catch (error) {
+      console.error('Error updating custom role:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete custom role
+   * @param {string} roleId - Role ID
+   * @returns {Promise<boolean>} - Whether deletion was successful
+   */
+  async deleteCustomRole(roleId) {
+    try {
+      const { error } = await SupabaseService.deleteCustomRole(roleId);
+      
+      if (error) throw error;
+      
+      // Remove from local cache
+      this.customRoles = this.customRoles.filter(role => role.id !== roleId);
+      
+      return true;
+    } catch (error) {
+      console.error('Error deleting custom role:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Check if user has permission
+   * @param {string} userId - User ID
+   * @param {string} permission - Permission to check
+   * @returns {Promise<boolean>} - Whether user has permission
+   */
+  async hasPermission(userId, permission) {
+    try {
+      // Get user data
+      const userData = await SupabaseService.getUserData(userId);
+      if (!userData) return false;
+      
+      // Get user role
+      const role = this.getRole(userData.role);
+      if (!role) return false;
+      
+      // Check if role has wildcard permission
+      if (role.permissions.includes('*')) return true;
+      
+      // Check if role has specific permission
+      return role.permissions.includes(permission);
+    } catch (error) {
+      console.error('Error checking permission:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Get available permissions
+   * @returns {Array} - Array of available permissions
+   */
+  getAvailablePermissions() {
+    return [
+      {
+        id: 'user.read',
+        name: 'Read Users',
+        description: 'View user information'
+      },
+      {
+        id: 'user.create',
+        name: 'Create Users',
+        description: 'Create new users'
+      },
+      {
+        id: 'user.update',
+        name: 'Update Users',
+        description: 'Update user information'
+      },
+      {
+        id: 'user.delete',
+        name: 'Delete Users',
+        description: 'Delete users'
+      },
+      {
+        id: 'transaction.read',
+        name: 'Read Transactions',
+        description: 'View transaction information'
+      },
+      {
+        id: 'transaction.create',
+        name: 'Create Transactions',
+        description: 'Create new transactions'
+      },
+      {
+        id: 'transaction.update',
+        name: 'Update Transactions',
+        description: 'Update transaction information'
+      },
+      {
+        id: 'transaction.approve',
+        name: 'Approve Transactions',
+        description: 'Approve transactions'
+      },
+      {
+        id: 'transaction.reject',
+        name: 'Reject Transactions',
+        description: 'Reject transactions'
+      },
+      {
+        id: 'settings.read',
+        name: 'Read Settings',
+        description: 'View system settings'
+      },
+      {
+        id: 'settings.update',
+        name: 'Update Settings',
+        description: 'Update system settings'
+      },
+      {
+        id: 'logs.read',
+        name: 'Read Logs',
+        description: 'View system logs'
+      },
+      {
+        id: 'analytics.read',
+        name: 'Read Analytics',
+        description: 'View analytics data'
+      },
+      {
+        id: 'analytics.export',
+        name: 'Export Analytics',
+        description: 'Export analytics data'
+      },
+      {
+        id: 'organization.read',
+        name: 'Read Organizations',
+        description: 'View organization information'
+      },
+      {
+        id: 'organization.create',
+        name: 'Create Organizations',
+        description: 'Create new organizations'
+      },
+      {
+        id: 'organization.update',
+        name: 'Update Organizations',
+        description: 'Update organization information'
+      },
+      {
+        id: 'organization.delete',
+        name: 'Delete Organizations',
+        description: 'Delete organizations'
+      },
+      {
+        id: '*',
+        name: 'All Permissions',
+        description: 'Full system access'
+      }
+    ];
+  }
+
+  /**
+   * Get permission by ID
+   * @param {string} permissionId - Permission ID
+   * @returns {Object|null} - Permission data
+   */
+  getPermission(permissionId) {
+    return this.getAvailablePermissions().find(p => p.id === permissionId) || null;
+  }
+
+  /**
+   * Get permission name
+   * @param {string} permissionId - Permission ID
+   * @returns {string} - Permission name
+   */
+  getPermissionName(permissionId) {
+    const permission = this.getPermission(permissionId);
+    return permission ? permission.name : permissionId;
+  }
+
+  /**
+   * Group permissions by category
+   * @returns {Object} - Permissions grouped by category
+   */
+  getPermissionsByCategory() {
+    const permissions = this.getAvailablePermissions();
+    const categories = {};
+    
+    permissions.forEach(permission => {
+      const category = permission.id.split('.')[0];
+      
+      if (!categories[category]) {
+        categories[category] = [];
+      }
+      
+      categories[category].push(permission);
+    });
+    
+    return categories;
   }
 }
 

@@ -1,244 +1,312 @@
 import { AppStateManager } from './AppStateManager';
+import { SupabaseService } from './SupabaseService';
+import { toast } from 'react-toastify';
 
 class NotificationServiceClass {
   constructor() {
-    this.isEnabled = false;
-    this.botToken = '';
-    this.chatId = '';
-    this.slackWebhook = '';
-    this.teamsWebhook = '';
-    this.emailConfig = null;
+    this.notifications = [];
+    this.unreadCount = 0;
+    this.isInitialized = false;
+    this.pollingInterval = null;
+    this.lastCheckedTimestamp = null;
+    this.isEnabled = true;
+    this.listeners = [];
   }
 
+  /**
+   * Initialize notification service
+   */
   initialize() {
-    const config = AppStateManager.getSystemSettings();
-    this.isEnabled = config && config.notifications_enabled;
-    this.botToken = config?.telegram_bot_token || '';
-    this.chatId = config?.telegram_chat_id || '';
-    this.slackWebhook = config?.slack_webhook_url || '';
-    this.teamsWebhook = config?.teams_webhook_url || '';
-    this.emailConfig = config?.email_config || null;
-  }
-
-  async sendNotification(message, channels = ['telegram']) {
-    if (!this.isEnabled) {
-      console.log('Notifications disabled:', message);
-      return false;
-    }
-
-    const results = [];
-
-    for (const channel of channels) {
-      try {
-        switch (channel) {
-          case 'telegram':
-            results.push(await this.sendTelegram(message));
-            break;
-          case 'slack':
-            results.push(await this.sendSlack(message));
-            break;
-          case 'teams':
-            results.push(await this.sendTeams(message));
-            break;
-          case 'email':
-            results.push(await this.sendEmail(message));
-            break;
-        }
-      } catch (error) {
-        console.error(`Failed to send ${channel} notification:`, error);
-        results.push(false);
+    if (this.isInitialized) return;
+    
+    // Get feature flag for notifications
+    const featureFlags = AppStateManager.getFeatureFlags();
+    this.isEnabled = featureFlags.enableNotifications !== false;
+    
+    if (!this.isEnabled) return;
+    
+    // Load notifications for current user
+    this.loadNotifications();
+    
+    // Start polling for new notifications
+    this.startPolling();
+    
+    // Add user change listener
+    AppStateManager.addListener('user', (user) => {
+      if (user) {
+        this.loadNotifications();
+        this.startPolling();
+      } else {
+        this.notifications = [];
+        this.unreadCount = 0;
+        this.stopPolling();
+        this.notifyListeners();
       }
-    }
-
-    return results.some(result => result === true);
+    });
+    
+    this.isInitialized = true;
   }
 
-  async sendTelegram(message) {
-    if (!this.botToken || !this.chatId) return false;
-
+  /**
+   * Load notifications for current user
+   */
+  async loadNotifications() {
     try {
-      const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: this.chatId,
-          text: message,
-          parse_mode: 'HTML'
-        })
-      });
-
-      return response.ok;
+      const user = AppStateManager.getCurrentUser();
+      if (!user) return;
+      
+      const notifications = await SupabaseService.getUserNotifications(user.id);
+      
+      this.notifications = notifications || [];
+      this.unreadCount = this.notifications.filter(n => !n.read).length;
+      this.lastCheckedTimestamp = new Date().toISOString();
+      
+      this.notifyListeners();
     } catch (error) {
-      console.error('Telegram notification error:', error);
-      return false;
+      console.error('Error loading notifications:', error);
     }
   }
 
-  async sendSlack(message) {
-    if (!this.slackWebhook) return false;
+  /**
+   * Start polling for new notifications
+   */
+  startPolling() {
+    if (this.pollingInterval) {
+      clearInterval(this.pollingInterval);
+    }
+    
+    this.pollingInterval = setInterval(() => {
+      this.checkForNewNotifications();
+    }, 30000); // Check every 30 seconds
+  }
 
+  /**
+   * Stop polling for new notifications
+   */
+  stopPolling() {
+    if (this.pollingInterval) {
+      clearInterval(this.pollingInterval);
+      this.pollingInterval = null;
+    }
+  }
+
+  /**
+   * Check for new notifications
+   */
+  async checkForNewNotifications() {
     try {
-      const response = await fetch(this.slackWebhook, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: message,
-          username: 'Coinmate Bot',
-          icon_emoji: ':money_with_wings:'
-        })
-      });
-
-      return response.ok;
+      const user = AppStateManager.getCurrentUser();
+      if (!user || !this.lastCheckedTimestamp) return;
+      
+      const newNotifications = await SupabaseService.getNewNotifications(user.id, this.lastCheckedTimestamp);
+      
+      if (newNotifications && newNotifications.length > 0) {
+        // Add new notifications to the list
+        this.notifications = [...newNotifications, ...this.notifications];
+        this.unreadCount += newNotifications.length;
+        
+        // Show toast for new notifications
+        this.showToastForNewNotifications(newNotifications);
+        
+        this.notifyListeners();
+      }
+      
+      this.lastCheckedTimestamp = new Date().toISOString();
     } catch (error) {
-      console.error('Slack notification error:', error);
-      return false;
+      console.error('Error checking for new notifications:', error);
     }
   }
 
-  async sendTeams(message) {
-    if (!this.teamsWebhook) return false;
+  /**
+   * Show toast for new notifications
+   * @param {Array} notifications - New notifications
+   */
+  showToastForNewNotifications(notifications) {
+    if (!notifications || notifications.length === 0) return;
+    
+    if (notifications.length === 1) {
+      // Show single notification toast
+      const notification = notifications[0];
+      toast.info(notification.message, {
+        onClick: () => this.markAsRead(notification.id)
+      });
+    } else {
+      // Show summary toast for multiple notifications
+      toast.info(`You have ${notifications.length} new notifications`, {
+        onClick: () => this.markAllAsRead()
+      });
+    }
+  }
 
+  /**
+   * Get all notifications
+   * @returns {Array} - Array of notifications
+   */
+  getNotifications() {
+    return [...this.notifications];
+  }
+
+  /**
+   * Get unread notifications
+   * @returns {Array} - Array of unread notifications
+   */
+  getUnreadNotifications() {
+    return this.notifications.filter(n => !n.read);
+  }
+
+  /**
+   * Get unread count
+   * @returns {number} - Number of unread notifications
+   */
+  getUnreadCount() {
+    return this.unreadCount;
+  }
+
+  /**
+   * Mark notification as read
+   * @param {string} notificationId - Notification ID
+   */
+  async markAsRead(notificationId) {
     try {
-      const response = await fetch(this.teamsWebhook, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          "@type": "MessageCard",
-          "@context": "http://schema.org/extensions",
-          "themeColor": "0076D7",
-          "summary": "Coinmate Notification",
-          "sections": [{
-            "activityTitle": "Coinmate Alert",
-            "activitySubtitle": new Date().toLocaleString(),
-            "text": message,
-            "markdown": true
-          }]
-        })
-      });
-
-      return response.ok;
+      // Find notification in local cache
+      const notification = this.notifications.find(n => n.id === notificationId);
+      if (!notification || notification.read) return;
+      
+      // Mark as read in database
+      await SupabaseService.markNotificationAsRead(notificationId);
+      
+      // Update local cache
+      notification.read = true;
+      notification.read_at = new Date().toISOString();
+      
+      // Update unread count
+      this.unreadCount = Math.max(0, this.unreadCount - 1);
+      
+      this.notifyListeners();
     } catch (error) {
-      console.error('Teams notification error:', error);
-      return false;
+      console.error('Error marking notification as read:', error);
     }
   }
 
-  async sendEmail(message) {
-    // This would require a backend email service
-    // For now, just log the attempt
-    console.log('Email notification (not implemented):', message);
-    return false;
+  /**
+   * Mark all notifications as read
+   */
+  async markAllAsRead() {
+    try {
+      const user = AppStateManager.getCurrentUser();
+      if (!user) return;
+      
+      // Mark all as read in database
+      await SupabaseService.markAllNotificationsAsRead(user.id);
+      
+      // Update local cache
+      this.notifications.forEach(notification => {
+        notification.read = true;
+        notification.read_at = new Date().toISOString();
+      });
+      
+      // Update unread count
+      this.unreadCount = 0;
+      
+      this.notifyListeners();
+    } catch (error) {
+      console.error('Error marking all notifications as read:', error);
+    }
   }
 
-  // Enhanced notification methods
-  async notifyTransaction(transaction) {
-    const { type, user_name, usdt_amount, php_amount, platform, bank, rate } = transaction;
+  /**
+   * Delete notification
+   * @param {string} notificationId - Notification ID
+   */
+  async deleteNotification(notificationId) {
+    try {
+      // Delete from database
+      await SupabaseService.deleteNotification(notificationId);
+      
+      // Find notification in local cache
+      const notification = this.notifications.find(n => n.id === notificationId);
+      
+      // Update unread count if needed
+      if (notification && !notification.read) {
+        this.unreadCount = Math.max(0, this.unreadCount - 1);
+      }
+      
+      // Remove from local cache
+      this.notifications = this.notifications.filter(n => n.id !== notificationId);
+      
+      this.notifyListeners();
+    } catch (error) {
+      console.error('Error deleting notification:', error);
+    }
+  }
+
+  /**
+   * Create notification
+   * @param {Object} notificationData - Notification data
+   * @returns {Promise<Object>} - Created notification
+   */
+  async createNotification(notificationData) {
+    try {
+      const notification = await SupabaseService.createNotification(notificationData);
+      
+      if (notification) {
+        // Add to local cache
+        this.notifications.unshift(notification);
+        
+        // Update unread count
+        this.unreadCount += 1;
+        
+        // Show toast for new notification
+        this.showToastForNewNotifications([notification]);
+        
+        this.notifyListeners();
+      }
+      
+      return notification;
+    } catch (error) {
+      console.error('Error creating notification:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Add notification listener
+   * @param {Function} callback - Callback function
+   * @returns {Function} - Function to remove listener
+   */
+  addListener(callback) {
+    this.listeners.push(callback);
     
-    const message = `
-🔔 <b>New ${type} Transaction</b>
-👤 <b>User:</b> ${user_name}
-💰 <b>Amount:</b> ${usdt_amount} USDT ↔ ₱${php_amount.toFixed(2)}
-📊 <b>Rate:</b> ₱${rate.toFixed(2)} per USDT
-🏦 <b>Platform:</b> ${platform}
-🏧 <b>Bank:</b> ${bank}
-⏰ <b>Time:</b> ${new Date().toLocaleString()}
-    `.trim();
-
-    return this.sendNotification(message, ['telegram', 'slack']);
+    return () => {
+      this.listeners = this.listeners.filter(cb => cb !== callback);
+    };
   }
 
-  async notifyLargeTransaction(transaction, threshold = 50000) {
-    if (transaction.php_amount < threshold) return;
-
-    const message = `
-🚨 <b>LARGE TRANSACTION ALERT</b>
-💰 <b>Amount:</b> ₱${transaction.php_amount.toLocaleString()}
-👤 <b>User:</b> ${transaction.user_name}
-📊 <b>Type:</b> ${transaction.type}
-⚠️ <b>Requires Review</b>
-    `.trim();
-
-    return this.sendNotification(message, ['telegram', 'slack', 'teams']);
-  }
-
-  async notifyBalanceAlert(user, bank, currentBalance, threshold = 1000) {
-    if (currentBalance > threshold) return;
-
-    const message = `
-⚠️ <b>LOW BALANCE ALERT</b>
-👤 <b>User:</b> ${user}
-🏧 <b>Bank:</b> ${bank}
-💰 <b>Balance:</b> ₱${currentBalance.toFixed(2)}
-📉 <b>Below Threshold:</b> ₱${threshold.toFixed(2)}
-    `.trim();
-
-    return this.sendNotification(message, ['telegram', 'slack']);
-  }
-
-  async notifySystemError(error, context = '') {
-    const message = `
-🔴 <b>SYSTEM ERROR</b>
-📍 <b>Context:</b> ${context}
-❌ <b>Error:</b> ${error.message}
-⏰ <b>Time:</b> ${new Date().toLocaleString()}
-🔧 <b>Action Required</b>
-    `.trim();
-
-    return this.sendNotification(message, ['telegram', 'slack', 'teams']);
-  }
-
-  async notifyEOD(report) {
-    const { totalPHP, totalUSDT, profit, transactionCount } = report;
+  /**
+   * Notify listeners of state change
+   */
+  notifyListeners() {
+    const data = {
+      notifications: this.notifications,
+      unreadCount: this.unreadCount
+    };
     
-    const message = `
-📊 <b>End of Day Report</b>
-💵 <b>Total PHP:</b> ₱${totalPHP.toFixed(2)}
-💰 <b>Total USDT:</b> ${totalUSDT.toFixed(2)}
-📈 <b>Net Profit:</b> ₱${profit.toFixed(2)}
-📝 <b>Transactions:</b> ${transactionCount}
-📅 <b>Date:</b> ${new Date().toLocaleDateString()}
-    `.trim();
-
-    return this.sendNotification(message, ['telegram', 'slack']);
+    this.listeners.forEach(callback => {
+      try {
+        callback(data);
+      } catch (error) {
+        console.error('Error in notification listener:', error);
+      }
+    });
   }
 
-  async notifyArbitrageOpportunity(opportunity) {
-    const { platform1, platform2, rate1, rate2, difference, volume } = opportunity;
-    
-    const message = `
-💎 <b>ARBITRAGE OPPORTUNITY</b>
-🏦 <b>Platforms:</b> ${platform1} vs ${platform2}
-📊 <b>Rates:</b> ₱${rate1.toFixed(4)} vs ₱${rate2.toFixed(4)}
-📈 <b>Difference:</b> ${difference.toFixed(2)}%
-💰 <b>Potential Volume:</b> ${volume.toFixed(2)} USDT
-⚡ <b>Act Fast!</b>
-    `.trim();
-
-    return this.sendNotification(message, ['telegram', 'slack', 'teams']);
-  }
-
-  async notifySecurityAlert(alert) {
-    const { type, user, ip, timestamp, details } = alert;
-    
-    const message = `
-🛡️ <b>SECURITY ALERT</b>
-⚠️ <b>Type:</b> ${type}
-👤 <b>User:</b> ${user}
-🌐 <b>IP:</b> ${ip}
-⏰ <b>Time:</b> ${timestamp}
-📝 <b>Details:</b> ${details}
-    `.trim();
-
-    return this.sendNotification(message, ['telegram', 'slack', 'teams']);
-  }
-
-  updateConfig(config) {
-    this.isEnabled = config.notifications_enabled;
-    this.botToken = config.telegram_bot_token;
-    this.chatId = config.telegram_chat_id;
-    this.slackWebhook = config.slack_webhook_url;
-    this.teamsWebhook = config.teams_webhook_url;
-    this.emailConfig = config.email_config;
+  /**
+   * Clean up notification service
+   */
+  cleanup() {
+    this.stopPolling();
+    this.listeners = [];
+    this.isInitialized = false;
   }
 }
 

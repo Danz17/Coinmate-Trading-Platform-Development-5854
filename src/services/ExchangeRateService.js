@@ -1,93 +1,236 @@
-import { AppStateManager } from './AppStateManager';
+import { SupabaseService } from './SupabaseService';
 
 class ExchangeRateServiceClass {
   constructor() {
-    this.currentRate = 56.25; // Default rate
-    this.lastUpdate = new Date();
-    this.isUpdating = false;
-    this.updateInterval = null;
-    this.source = 'Mock'; // 'CoinGecko' or 'Mock'
+    this.rates = null;
+    this.baseCurrency = 'USD';
+    this.lastUpdated = null;
+    this.isInitialized = false;
   }
 
-  initialize() {
-    const settings = AppStateManager.getSystemSettings();
-    this.startAutoUpdate(settings?.exchange_rate_update_interval || 300000);
-  }
-
-  async fetchRate() {
-    if (this.isUpdating) return this.currentRate;
+  /**
+   * Initialize exchange rate service
+   * @returns {Promise<boolean>} - Whether initialization was successful
+   */
+  async initialize() {
+    if (this.isInitialized) return true;
     
-    this.isUpdating = true;
     try {
-      const settings = AppStateManager.getSystemSettings();
-      
-      if (settings?.coingecko_api_key) {
-        // Try to fetch from CoinGecko API
-        try {
-          const response = await fetch(
-            `https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=php&x_cg_demo_api_key=${settings.coingecko_api_key}`
-          );
-          
-          if (response.ok) {
-            const data = await response.json();
-            if (data.tether && data.tether.php) {
-              this.currentRate = data.tether.php;
-              this.source = 'CoinGecko';
-              this.lastUpdate = new Date();
-              return this.currentRate;
-            }
-          }
-        } catch (apiError) {
-          console.error('Error fetching from CoinGecko:', apiError);
-          // Fall through to use mock data
-        }
-      }
-
-      // Fallback to mock rate with slight variation
-      const variation = (Math.random() - 0.5) * 0.1; // ±0.05 variation
-      this.currentRate = 56.25 + variation;
-      this.source = 'Mock';
-      this.lastUpdate = new Date();
+      await this.loadRates();
+      this.isInitialized = true;
+      return true;
     } catch (error) {
-      console.error('Error fetching exchange rate:', error);
-      // Keep current rate on error
-    } finally {
-      this.isUpdating = false;
+      console.error('Error initializing exchange rate service:', error);
+      return false;
     }
-    
-    return this.currentRate;
   }
 
-  getCurrentRate() {
+  /**
+   * Load exchange rates from database
+   */
+  async loadRates() {
+    try {
+      const rates = await SupabaseService.getExchangeRates();
+      
+      if (rates) {
+        this.rates = rates.rates;
+        this.baseCurrency = rates.base || 'USD';
+        this.lastUpdated = rates.timestamp || new Date().toISOString();
+      } else {
+        // Use fallback rates if none available
+        this.rates = this.getFallbackRates();
+        this.baseCurrency = 'USD';
+        this.lastUpdated = new Date().toISOString();
+      }
+    } catch (error) {
+      console.error('Error loading exchange rates:', error);
+      
+      // Use fallback rates if error
+      this.rates = this.getFallbackRates();
+      this.baseCurrency = 'USD';
+      this.lastUpdated = new Date().toISOString();
+    }
+  }
+
+  /**
+   * Get fallback exchange rates
+   * @returns {Object} - Fallback rates
+   */
+  getFallbackRates() {
     return {
-      rate: this.currentRate,
-      lastUpdate: this.lastUpdate,
-      source: this.source
+      USD: 1,
+      EUR: 0.85,
+      GBP: 0.75,
+      JPY: 110.0,
+      CAD: 1.25,
+      AUD: 1.35,
+      CHF: 0.92,
+      CNY: 6.45,
+      INR: 74.5,
+      PHP: 50.5,
+      SGD: 1.35,
+      MYR: 4.2,
+      THB: 33.0,
+      KRW: 1150.0,
+      IDR: 14500.0
     };
   }
 
-  startAutoUpdate(interval = 300000) {
-    if (this.updateInterval) {
-      clearInterval(this.updateInterval);
+  /**
+   * Get all exchange rates
+   * @returns {Object} - Exchange rates
+   */
+  getAllRates() {
+    return {
+      rates: this.rates || this.getFallbackRates(),
+      base: this.baseCurrency,
+      lastUpdated: this.lastUpdated
+    };
+  }
+
+  /**
+   * Get exchange rate for currency
+   * @param {string} currency - Currency code
+   * @returns {number} - Exchange rate
+   */
+  getRate(currency) {
+    if (!this.rates) {
+      this.rates = this.getFallbackRates();
     }
     
-    this.updateInterval = setInterval(() => {
-      this.fetchRate();
-    }, interval);
-
-    // Initial fetch
-    this.fetchRate();
+    return this.rates[currency] || 1;
   }
 
-  stopAutoUpdate() {
-    if (this.updateInterval) {
-      clearInterval(this.updateInterval);
-      this.updateInterval = null;
+  /**
+   * Convert amount from one currency to another
+   * @param {number} amount - Amount to convert
+   * @param {string} fromCurrency - Source currency
+   * @param {string} toCurrency - Target currency
+   * @returns {number} - Converted amount
+   */
+  convert(amount, fromCurrency, toCurrency) {
+    if (!this.rates) {
+      this.rates = this.getFallbackRates();
+    }
+    
+    // If currencies are the same, return original amount
+    if (fromCurrency === toCurrency) {
+      return amount;
+    }
+    
+    const fromRate = this.getRate(fromCurrency);
+    const toRate = this.getRate(toCurrency);
+    
+    // Convert to base currency, then to target currency
+    const amountInBase = amount / fromRate;
+    const amountInTarget = amountInBase * toRate;
+    
+    return amountInTarget;
+  }
+
+  /**
+   * Format amount with currency symbol
+   * @param {number} amount - Amount to format
+   * @param {string} currency - Currency code
+   * @returns {string} - Formatted amount
+   */
+  formatCurrency(amount, currency = 'USD') {
+    try {
+      return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: currency
+      }).format(amount);
+    } catch (error) {
+      console.error('Error formatting currency:', error);
+      return `${currency} ${amount.toFixed(2)}`;
     }
   }
 
-  setUpdateInterval(interval) {
-    this.startAutoUpdate(interval);
+  /**
+   * Get supported currencies
+   * @returns {Array} - Array of supported currency objects
+   */
+  getSupportedCurrencies() {
+    return [
+      { code: 'USD', name: 'US Dollar', symbol: '$' },
+      { code: 'EUR', name: 'Euro', symbol: '€' },
+      { code: 'GBP', name: 'British Pound', symbol: '£' },
+      { code: 'JPY', name: 'Japanese Yen', symbol: '¥' },
+      { code: 'CAD', name: 'Canadian Dollar', symbol: 'C$' },
+      { code: 'AUD', name: 'Australian Dollar', symbol: 'A$' },
+      { code: 'CHF', name: 'Swiss Franc', symbol: 'CHF' },
+      { code: 'CNY', name: 'Chinese Yuan', symbol: '¥' },
+      { code: 'INR', name: 'Indian Rupee', symbol: '₹' },
+      { code: 'PHP', name: 'Philippine Peso', symbol: '₱' },
+      { code: 'SGD', name: 'Singapore Dollar', symbol: 'S$' },
+      { code: 'MYR', name: 'Malaysian Ringgit', symbol: 'RM' },
+      { code: 'THB', name: 'Thai Baht', symbol: '฿' },
+      { code: 'KRW', name: 'South Korean Won', symbol: '₩' },
+      { code: 'IDR', name: 'Indonesian Rupiah', symbol: 'Rp' }
+    ];
+  }
+
+  /**
+   * Get currency symbol
+   * @param {string} currencyCode - Currency code
+   * @returns {string} - Currency symbol
+   */
+  getCurrencySymbol(currencyCode) {
+    const currency = this.getSupportedCurrencies().find(c => c.code === currencyCode);
+    return currency ? currency.symbol : currencyCode;
+  }
+
+  /**
+   * Get currency name
+   * @param {string} currencyCode - Currency code
+   * @returns {string} - Currency name
+   */
+  getCurrencyName(currencyCode) {
+    const currency = this.getSupportedCurrencies().find(c => c.code === currencyCode);
+    return currency ? currency.name : currencyCode;
+  }
+
+  /**
+   * Get last updated timestamp
+   * @returns {string} - Last updated timestamp
+   */
+  getLastUpdated() {
+    return this.lastUpdated;
+  }
+
+  /**
+   * Format last updated date
+   * @returns {string} - Formatted date
+   */
+  formatLastUpdated() {
+    try {
+      const date = new Date(this.lastUpdated);
+      return date.toLocaleString();
+    } catch (error) {
+      console.error('Error formatting last updated date:', error);
+      return this.lastUpdated || 'Unknown';
+    }
+  }
+
+  /**
+   * Check if rates are stale (older than 24 hours)
+   * @returns {boolean} - Whether rates are stale
+   */
+  areRatesStale() {
+    if (!this.lastUpdated) return true;
+    
+    try {
+      const lastUpdated = new Date(this.lastUpdated);
+      const now = new Date();
+      
+      // Calculate difference in hours
+      const diffHours = (now - lastUpdated) / (1000 * 60 * 60);
+      
+      return diffHours > 24;
+    } catch (error) {
+      console.error('Error checking if rates are stale:', error);
+      return true;
+    }
   }
 }
 

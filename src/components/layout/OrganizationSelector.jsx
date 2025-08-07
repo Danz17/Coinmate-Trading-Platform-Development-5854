@@ -1,147 +1,122 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import SafeIcon from '../../common/SafeIcon';
+import { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
 import * as FiIcons from 'react-icons/fi';
-import { OrganizationManager } from '../../services/OrganizationManager';
+import SafeIcon from '../../common/SafeIcon';
+import { SupabaseService } from '../../services/SupabaseService';
 
-const { FiChevronDown, FiCheck, FiBriefcase } = FiIcons;
-
-const OrganizationSelector = ({ currentUser }) => {
-  const [organizations, setOrganizations] = useState([]);
-  const [currentOrganization, setCurrentOrganization] = useState(null);
-  const [isOpen, setIsOpen] = useState(false);
-  const dropdownRef = useRef(null);
+const OrganizationSelector = ({ organizations = [], onSelect }) => {
+  const [orgs, setOrgs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
-    loadOrganizations();
-    
-    const unsubscribe = OrganizationManager.subscribe(org => {
-      setCurrentOrganization(org);
-    });
-    
-    // Close dropdown when clicking outside
-    const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setIsOpen(false);
+    const fetchOrganizations = async () => {
+      try {
+        if (organizations.length === 0) {
+          const fetchedOrgs = await SupabaseService.getOrganizations();
+          setOrgs(fetchedOrgs);
+        } else {
+          setOrgs(organizations);
+        }
+      } catch (err) {
+        console.error('Failed to fetch organizations:', err);
+        setError('Failed to load organizations. Please try again later.');
+      } finally {
+        setLoading(false);
       }
     };
-    
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      unsubscribe();
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, []);
 
-  const loadOrganizations = async () => {
-    await OrganizationManager.initialize();
-    const orgs = await OrganizationManager.loadOrganizations();
-    setOrganizations(orgs);
-    setCurrentOrganization(OrganizationManager.getCurrentOrganization());
-  };
+    fetchOrganizations();
+  }, [organizations]);
 
-  const handleSwitchOrganization = async (organizationId) => {
-    await OrganizationManager.switchOrganization(organizationId);
-    setIsOpen(false);
-  };
+  if (loading) {
+    return (
+      <div className="text-center p-8">
+        <SafeIcon icon={FiIcons.FiLoader} className="animate-spin text-4xl text-blue-500 mx-auto mb-4" />
+        <h2 className="text-xl font-semibold">Loading Organizations...</h2>
+      </div>
+    );
+  }
 
-  // Don't show selector if user is not super admin or if there's only one organization
-  if (currentUser.role !== 'super_admin' && organizations.length <= 1) {
-    return null;
+  if (error) {
+    return (
+      <div className="text-center p-8 max-w-md mx-auto">
+        <SafeIcon icon={FiIcons.FiAlertTriangle} className="text-4xl text-red-500 mx-auto mb-4" />
+        <h2 className="text-xl font-semibold mb-2">Error</h2>
+        <p className="text-gray-600 mb-4">{error}</p>
+        <button 
+          onClick={() => window.location.reload()}
+          className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  if (orgs.length === 0) {
+    return (
+      <div className="text-center p-8 max-w-md mx-auto">
+        <SafeIcon icon={FiIcons.FiAlertCircle} className="text-4xl text-amber-500 mx-auto mb-4" />
+        <h2 className="text-xl font-semibold mb-2">No Organizations Available</h2>
+        <p className="text-gray-600 mb-4">
+          You don't have access to any organizations. Please contact your administrator.
+        </p>
+      </div>
+    );
   }
 
   return (
-    <div className="relative" ref={dropdownRef}>
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center space-x-2 px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-      >
-        {currentOrganization?.logo_url ? (
-          <img 
-            src={currentOrganization.logo_url} 
-            alt={currentOrganization.name} 
-            className="w-5 h-5 object-contain"
-          />
-        ) : (
-          <SafeIcon icon={FiBriefcase} className="w-4 h-4 text-gray-600 dark:text-gray-300" />
-        )}
-        <span className="text-sm font-medium text-gray-800 dark:text-gray-200">
-          {currentOrganization?.display_name || currentOrganization?.name || 'Select Organization'}
-        </span>
-        <SafeIcon 
-          icon={FiChevronDown} 
-          className={`w-4 h-4 text-gray-500 transition-transform ${isOpen ? 'transform rotate-180' : ''}`} 
-        />
-      </button>
-
-      <AnimatePresence>
-        {isOpen && (
+    <div className="p-8 max-w-4xl mx-auto">
+      <div className="text-center mb-8">
+        <h1 className="text-3xl font-bold text-gray-800 mb-2">Welcome to BaryaBazaar</h1>
+        <p className="text-gray-600">Select an organization to continue</p>
+      </div>
+      
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {orgs.map((org) => (
           <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.15 }}
-            className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50"
+            key={org.id}
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.98 }}
+            className="bg-white rounded-lg shadow-md overflow-hidden cursor-pointer hover:shadow-lg transition-shadow"
+            onClick={() => onSelect(org)}
           >
-            <div className="p-2">
-              <div className="text-xs text-gray-500 dark:text-gray-400 px-3 py-1 uppercase font-medium">
-                Organizations
-              </div>
-              <div className="max-h-60 overflow-y-auto">
-                {organizations.map((org) => (
-                  <button
-                    key={org.id}
-                    onClick={() => handleSwitchOrganization(org.id)}
-                    className={`w-full flex items-center justify-between space-x-2 px-3 py-2 rounded-md text-left ${
-                      currentOrganization?.id === org.id
-                        ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300'
-                        : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-2">
-                      {org.logo_url ? (
-                        <img 
-                          src={org.logo_url} 
-                          alt={org.name} 
-                          className="w-5 h-5 object-contain"
-                        />
-                      ) : (
-                        <SafeIcon icon={FiBriefcase} className="w-4 h-4 text-gray-400" />
-                      )}
-                      <span className="text-sm truncate">
-                        {org.display_name || org.name}
-                      </span>
-                    </div>
-                    {currentOrganization?.id === org.id && (
-                      <SafeIcon icon={FiCheck} className="w-4 h-4 text-primary-600 dark:text-primary-400" />
-                    )}
-                  </button>
-                ))}
-              </div>
-              
-              {currentUser.role === 'super_admin' && (
-                <>
-                  <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
-                  <a
-                    href="#admin"
-                    onClick={() => {
-                      setIsOpen(false);
-                      window.location.hash = "#admin";
-                      // Wait for hash change and then set tab to white-labeling
-                      setTimeout(() => {
-                        document.dispatchEvent(new CustomEvent('set-admin-tab', { detail: 'white-labeling' }));
-                      }, 100);
+            <div className="p-6">
+              <div className="flex items-center justify-center mb-4 h-20">
+                {org.logo_url ? (
+                  <img 
+                    src={org.logo_url} 
+                    alt={`${org.name} Logo`}
+                    className="max-h-full max-w-full object-contain" 
+                  />
+                ) : (
+                  <div 
+                    className="h-16 w-16 rounded-full flex items-center justify-center text-white text-2xl font-bold"
+                    style={{ 
+                      backgroundColor: org.primary_color || '#3B82F6',
                     }}
-                    className="block w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"
                   >
-                    Manage Organizations
-                  </a>
-                </>
-              )}
+                    {org.name.charAt(0)}
+                  </div>
+                )}
+              </div>
+              <h3 className="text-xl font-semibold text-center text-gray-800 mb-2">{org.name}</h3>
+              <div className="flex justify-center">
+                <button
+                  className="px-4 py-2 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelect(org);
+                  }}
+                >
+                  Select
+                </button>
+              </div>
             </div>
           </motion.div>
-        )}
-      </AnimatePresence>
+        ))}
+      </div>
     </div>
   );
 };

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import SafeIcon from '../../common/SafeIcon';
+import SafeIcon from '../common/SafeIcon';
 import * as FiIcons from 'react-icons/fi';
 import { AppStateManager } from '../../services/AppStateManager';
 import { ExportService } from '../../services/ExportService';
@@ -98,7 +98,7 @@ const Transactions = ({ currentUser }) => {
   };
 
   const canEditDelete = () => {
-    return ['super_admin', 'admin', 'supervisor'].includes(currentUser.role);
+    return ['super_admin', 'admin', 'supervisor'].includes(currentUser?.role);
   };
 
   const handleEdit = (transaction) => {

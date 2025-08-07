@@ -1,162 +1,303 @@
-import React, { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import SafeIcon from '../../common/SafeIcon';
 import * as FiIcons from 'react-icons/fi';
-import { AppStateManager } from '../../services/AppStateManager';
+import SafeIcon from '../../common/SafeIcon';
+import supabase from '../../lib/supabase';
 
-const { FiX, FiUser, FiLock, FiEye, FiEyeOff } = FiIcons;
-
-const LoginModal = ({ onLogin, onClose }) => {
+const LoginModal = ({ isOpen, onClose, onLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [mode, setMode] = useState('login'); // login or signup
+  const [name, setName] = useState('');
 
-  const users = AppStateManager.getUsers();
+  useEffect(() => {
+    // Reset form when modal opens/closes
+    if (isOpen) {
+      setEmail('');
+      setPassword('');
+      setName('');
+      setError('');
+      setMode('login');
+    }
+  }, [isOpen]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setIsLoading(true);
     setError('');
+    setLoading(true);
 
-    // Simulate authentication delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    try {
+      if (mode === 'login') {
+        // Login with Supabase
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email,
+          password
+        });
 
-    const user = users.find(u => u.email === email);
+        if (error) throw error;
+
+        // Get user profile data
+        const { data: userData, error: userError } = await supabase
+          .from('users_ft2024')
+          .select('*')
+          .eq('email', email)
+          .single();
+
+        if (userError) throw userError;
+
+        onLogin({
+          id: data.user.id,
+          email: data.user.email,
+          name: userData.name,
+          role: userData.role || 'user'
+        });
+      } else {
+        // Signup with Supabase
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password
+        });
+
+        if (error) throw error;
+
+        // Create user profile
+        const { data: userData, error: userError } = await supabase
+          .from('users_ft2024')
+          .insert([
+            {
+              id: data.user.id,
+              email: data.user.email,
+              name: name,
+              role: 'user',
+              bank_balances: {}
+            }
+          ])
+          .select();
+
+        if (userError) throw userError;
+
+        // Auto-login after signup
+        onLogin({
+          id: data.user.id,
+          email: data.user.email,
+          name: name,
+          role: 'user'
+        });
+      }
+    } catch (error) {
+      console.error('Authentication error:', error);
+      setError(error.message || 'Authentication failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleMode = () => {
+    setMode(mode === 'login' ? 'signup' : 'login');
+    setError('');
+  };
+
+  // For development/testing only - quick login options
+  const quickLoginOptions = [
+    { name: 'Admin User', email: 'admin@example.com', password: 'password123', role: 'admin' },
+    { name: 'Regular User', email: 'user@example.com', password: 'password123', role: 'user' },
+    { name: 'Super Admin', email: 'super@example.com', password: 'password123', role: 'super_admin' }
+  ];
+
+  const handleQuickLogin = async (option) => {
+    setEmail(option.email);
+    setPassword(option.password);
     
-    if (user && password === 'password') { // Simple password for demo
-      onLogin(user);
-    } else {
-      setError('Invalid email or password');
+    // Check if user exists
+    const { data: existingUser } = await supabase
+      .from('users_ft2024')
+      .select('*')
+      .eq('email', option.email)
+      .single();
+    
+    if (!existingUser) {
+      // Create user if doesn't exist
+      try {
+        // Create auth user
+        const { data, error } = await supabase.auth.signUp({
+          email: option.email,
+          password: option.password
+        });
+        
+        if (error) throw error;
+        
+        // Create profile
+        await supabase
+          .from('users_ft2024')
+          .insert([
+            {
+              id: data.user.id,
+              email: option.email,
+              name: option.name,
+              role: option.role,
+              bank_balances: {}
+            }
+          ]);
+      } catch (error) {
+        console.error('Error creating test user:', error);
+        setError('Failed to create test user');
+        return;
+      }
     }
     
-    setIsLoading(false);
+    // Now login
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: option.email,
+        password: option.password
+      });
+      
+      if (error) throw error;
+      
+      // Get user data
+      const { data: userData } = await supabase
+        .from('users_ft2024')
+        .select('*')
+        .eq('email', option.email)
+        .single();
+      
+      onLogin({
+        id: data.user.id,
+        email: data.user.email,
+        name: userData.name,
+        role: userData.role
+      });
+    } catch (error) {
+      console.error('Quick login error:', error);
+      setError('Quick login failed');
+    }
   };
 
-  const handleQuickLogin = (user) => {
-    onLogin(user);
-  };
+  if (!isOpen) return null;
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
+      <div className="fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-50 p-4">
         <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.9 }}
-          className="bg-white dark:bg-dark-surface rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden"
+          className="bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden"
         >
-          {/* Header */}
-          <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-              Login to Coinmate
-            </h2>
-            <button
-              onClick={onClose}
-              className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-            >
-              <SafeIcon icon={FiX} className="w-5 h-5 text-gray-500" />
-            </button>
-          </div>
-
-          {/* Body */}
           <div className="p-6">
-            {/* Login Form */}
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Email
-                </label>
+            <div className="text-center mb-6">
+              <h1 className="text-2xl font-bold text-gray-800">BaryaBazaar</h1>
+              <p className="text-sm text-gray-500 mt-1">SaaS P2P Trading Platform</p>
+            </div>
+            
+            <h2 className="text-xl font-semibold mb-6 text-center">
+              {mode === 'login' ? 'Sign In' : 'Create Account'}
+            </h2>
+            
+            {error && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-md text-sm flex items-start">
+                <SafeIcon icon={FiIcons.FiAlertCircle} className="mr-2 mt-0.5 flex-shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+            
+            <form onSubmit={handleSubmit}>
+              {mode === 'signup' && (
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-3 text-gray-400">
+                      <SafeIcon icon={FiIcons.FiUser} />
+                    </span>
+                    <input
+                      type="text"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="Your full name"
+                      required={mode === 'signup'}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              )}
+              
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
                 <div className="relative">
-                  <SafeIcon 
-                    icon={FiUser} 
-                    className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" 
-                  />
+                  <span className="absolute left-3 top-3 text-gray-400">
+                    <SafeIcon icon={FiIcons.FiMail} />
+                  </span>
                   <input
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-                    placeholder="Enter your email"
+                    placeholder="Your email address"
                     required
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Password
-                </label>
+              
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
                 <div className="relative">
-                  <SafeIcon 
-                    icon={FiLock} 
-                    className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" 
-                  />
+                  <span className="absolute left-3 top-3 text-gray-400">
+                    <SafeIcon icon={FiIcons.FiLock} />
+                  </span>
                   <input
-                    type={showPassword ? 'text' : 'password'}
+                    type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full pl-10 pr-10 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-                    placeholder="Enter your password"
+                    placeholder={mode === 'login' ? 'Your password' : 'Create a password'}
                     required
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    <SafeIcon icon={showPassword ? FiEyeOff : FiEye} className="w-4 h-4" />
-                  </button>
                 </div>
               </div>
-
-              {error && (
-                <div className="text-red-600 dark:text-red-400 text-sm">
-                  {error}
-                </div>
-              )}
-
+              
               <button
                 type="submit"
-                disabled={isLoading}
-                className="w-full bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white py-2 px-4 rounded-lg font-medium transition-colors"
+                disabled={loading}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-md font-medium transition-colors flex items-center justify-center"
               >
-                {isLoading ? (
-                  <div className="flex items-center justify-center space-x-2">
-                    <div className="loading-spinner"></div>
-                    <span>Signing in...</span>
-                  </div>
-                ) : (
+                {loading ? (
+                  <>
+                    <SafeIcon icon={FiIcons.FiLoader} className="animate-spin mr-2" />
+                    Processing...
+                  </>
+                ) : mode === 'login' ? (
                   'Sign In'
+                ) : (
+                  'Create Account'
                 )}
               </button>
             </form>
-
-            {/* Quick Login Options */}
-            <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-                Quick login (Demo):
-              </p>
-              <div className="space-y-2">
-                {users.map((user) => (
+            
+            <div className="mt-4 text-center">
+              <button
+                onClick={toggleMode}
+                className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+              >
+                {mode === 'login' ? 'Need an account? Sign up' : 'Already have an account? Sign in'}
+              </button>
+            </div>
+            
+            {/* Quick Login Options (for development only) */}
+            <div className="mt-8 pt-6 border-t border-gray-200">
+              <p className="text-xs text-gray-500 mb-2 text-center">Quick Login Options (Development Only)</p>
+              <div className="flex flex-wrap gap-2 justify-center">
+                {quickLoginOptions.map((option, index) => (
                   <button
-                    key={user.id}
-                    onClick={() => handleQuickLogin(user)}
-                    className="w-full text-left p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                    key={index}
+                    onClick={() => handleQuickLogin(option)}
+                    className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors"
                   >
-                    <div className="font-medium text-gray-900 dark:text-white">
-                      {user.name}
-                    </div>
-                    <div className="text-sm text-gray-500 dark:text-gray-400 capitalize">
-                      {user.role.replace('_', ' ')} • {user.email}
-                    </div>
+                    {option.role}
                   </button>
                 ))}
               </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
-                Use password: "password" for manual login
-              </p>
             </div>
           </div>
         </motion.div>

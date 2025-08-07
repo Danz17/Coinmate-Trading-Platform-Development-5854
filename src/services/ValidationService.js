@@ -1,223 +1,372 @@
 class ValidationServiceClass {
-  constructor() {
-    this.validationRules = {
-      trade: {
-        minAmount: 0.01,
-        maxAmount: 1000000,
-        requiredFields: ['selectedUser', 'userBank', 'platform', 'usdtAmount', 'phpAmount', 'rate']
-      }
-    };
+  /**
+   * Validate required field
+   * @param {*} value - Field value
+   * @param {string} fieldName - Field name for error message
+   * @returns {string|null} - Error message or null if valid
+   */
+  required(value, fieldName = 'Field') {
+    if (value === null || value === undefined || value === '') {
+      return `${fieldName} is required`;
+    }
+    return null;
   }
 
-  // Validate trade transaction
-  validateTrade(formData, transactionType, availableBalances) {
-    const errors = {};
-    const warnings = [];
+  /**
+   * Validate email format
+   * @param {string} value - Email to validate
+   * @returns {string|null} - Error message or null if valid
+   */
+  email(value) {
+    if (!value) return null; // Skip if empty (use required validation separately)
+    
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(value)) {
+      return 'Please enter a valid email address';
+    }
+    return null;
+  }
 
-    // Required fields validation
-    this.validationRules.trade.requiredFields.forEach(field => {
-      if (!formData[field] || formData[field] === '') {
-        errors[field] = `${field.replace(/([A-Z])/g, ' $1').toLowerCase()} is required`;
+  /**
+   * Validate minimum length
+   * @param {string} value - Value to validate
+   * @param {number} length - Minimum length
+   * @param {string} fieldName - Field name for error message
+   * @returns {string|null} - Error message or null if valid
+   */
+  minLength(value, length, fieldName = 'Field') {
+    if (!value) return null; // Skip if empty (use required validation separately)
+    
+    if (value.length < length) {
+      return `${fieldName} must be at least ${length} characters`;
+    }
+    return null;
+  }
+
+  /**
+   * Validate maximum length
+   * @param {string} value - Value to validate
+   * @param {number} length - Maximum length
+   * @param {string} fieldName - Field name for error message
+   * @returns {string|null} - Error message or null if valid
+   */
+  maxLength(value, length, fieldName = 'Field') {
+    if (!value) return null; // Skip if empty (use required validation separately)
+    
+    if (value.length > length) {
+      return `${fieldName} must be no more than ${length} characters`;
+    }
+    return null;
+  }
+
+  /**
+   * Validate numeric value
+   * @param {*} value - Value to validate
+   * @param {string} fieldName - Field name for error message
+   * @returns {string|null} - Error message or null if valid
+   */
+  numeric(value, fieldName = 'Field') {
+    if (!value && value !== 0) return null; // Skip if empty (use required validation separately)
+    
+    if (isNaN(Number(value))) {
+      return `${fieldName} must be a number`;
+    }
+    return null;
+  }
+
+  /**
+   * Validate integer value
+   * @param {*} value - Value to validate
+   * @param {string} fieldName - Field name for error message
+   * @returns {string|null} - Error message or null if valid
+   */
+  integer(value, fieldName = 'Field') {
+    if (!value && value !== 0) return null; // Skip if empty (use required validation separately)
+    
+    if (!Number.isInteger(Number(value))) {
+      return `${fieldName} must be an integer`;
+    }
+    return null;
+  }
+
+  /**
+   * Validate minimum value
+   * @param {number} value - Value to validate
+   * @param {number} min - Minimum value
+   * @param {string} fieldName - Field name for error message
+   * @returns {string|null} - Error message or null if valid
+   */
+  min(value, min, fieldName = 'Field') {
+    if (!value && value !== 0) return null; // Skip if empty (use required validation separately)
+    
+    if (Number(value) < min) {
+      return `${fieldName} must be at least ${min}`;
+    }
+    return null;
+  }
+
+  /**
+   * Validate maximum value
+   * @param {number} value - Value to validate
+   * @param {number} max - Maximum value
+   * @param {string} fieldName - Field name for error message
+   * @returns {string|null} - Error message or null if valid
+   */
+  max(value, max, fieldName = 'Field') {
+    if (!value && value !== 0) return null; // Skip if empty (use required validation separately)
+    
+    if (Number(value) > max) {
+      return `${fieldName} must be no more than ${max}`;
+    }
+    return null;
+  }
+
+  /**
+   * Validate URL format
+   * @param {string} value - URL to validate
+   * @returns {string|null} - Error message or null if valid
+   */
+  url(value) {
+    if (!value) return null; // Skip if empty (use required validation separately)
+    
+    try {
+      new URL(value);
+      return null;
+    } catch (error) {
+      return 'Please enter a valid URL';
+    }
+  }
+
+  /**
+   * Validate date format
+   * @param {string} value - Date to validate
+   * @returns {string|null} - Error message or null if valid
+   */
+  date(value) {
+    if (!value) return null; // Skip if empty (use required validation separately)
+    
+    const date = new Date(value);
+    if (isNaN(date.getTime())) {
+      return 'Please enter a valid date';
+    }
+    return null;
+  }
+
+  /**
+   * Validate password
+   * @param {string} value - Password to validate
+   * @param {Object} options - Validation options
+   * @returns {string|null} - Error message or null if valid
+   */
+  password(value, options = {}) {
+    if (!value) return null; // Skip if empty (use required validation separately)
+    
+    const {
+      minLength = 8,
+      requireUppercase = true,
+      requireLowercase = true,
+      requireNumbers = true,
+      requireSpecialChars = false
+    } = options;
+    
+    const errors = [];
+    
+    if (value.length < minLength) {
+      errors.push(`Password must be at least ${minLength} characters long`);
+    }
+    
+    if (requireUppercase && !/[A-Z]/.test(value)) {
+      errors.push('Password must contain at least one uppercase letter');
+    }
+    
+    if (requireLowercase && !/[a-z]/.test(value)) {
+      errors.push('Password must contain at least one lowercase letter');
+    }
+    
+    if (requireNumbers && !/[0-9]/.test(value)) {
+      errors.push('Password must contain at least one number');
+    }
+    
+    if (requireSpecialChars && !/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(value)) {
+      errors.push('Password must contain at least one special character');
+    }
+    
+    return errors.length > 0 ? errors.join(', ') : null;
+  }
+
+  /**
+   * Validate password confirmation
+   * @param {string} value - Password confirmation
+   * @param {string} password - Original password
+   * @returns {string|null} - Error message or null if valid
+   */
+  passwordConfirmation(value, password) {
+    if (!value) return null; // Skip if empty (use required validation separately)
+    
+    if (value !== password) {
+      return 'Passwords do not match';
+    }
+    return null;
+  }
+
+  /**
+   * Validate alphanumeric value
+   * @param {string} value - Value to validate
+   * @param {string} fieldName - Field name for error message
+   * @returns {string|null} - Error message or null if valid
+   */
+  alphanumeric(value, fieldName = 'Field') {
+    if (!value) return null; // Skip if empty (use required validation separately)
+    
+    if (!/^[a-zA-Z0-9]+$/.test(value)) {
+      return `${fieldName} must contain only letters and numbers`;
+    }
+    return null;
+  }
+
+  /**
+   * Validate alphabetic value
+   * @param {string} value - Value to validate
+   * @param {string} fieldName - Field name for error message
+   * @returns {string|null} - Error message or null if valid
+   */
+  alphabetic(value, fieldName = 'Field') {
+    if (!value) return null; // Skip if empty (use required validation separately)
+    
+    if (!/^[a-zA-Z]+$/.test(value)) {
+      return `${fieldName} must contain only letters`;
+    }
+    return null;
+  }
+
+  /**
+   * Validate phone number
+   * @param {string} value - Phone number to validate
+   * @returns {string|null} - Error message or null if valid
+   */
+  phone(value) {
+    if (!value) return null; // Skip if empty (use required validation separately)
+    
+    // Simple phone validation (at least 10 digits)
+    if (!/^\+?[\d\s\-()]{10,}$/.test(value)) {
+      return 'Please enter a valid phone number';
+    }
+    return null;
+  }
+
+  /**
+   * Validate zipcode
+   * @param {string} value - Zipcode to validate
+   * @returns {string|null} - Error message or null if valid
+   */
+  zipcode(value) {
+    if (!value) return null; // Skip if empty (use required validation separately)
+    
+    // Basic zipcode validation (5 digits, or 5+4 format)
+    if (!/^\d{5}(-\d{4})?$/.test(value)) {
+      return 'Please enter a valid zipcode';
+    }
+    return null;
+  }
+
+  /**
+   * Validate credit card number
+   * @param {string} value - Credit card number to validate
+   * @returns {string|null} - Error message or null if valid
+   */
+  creditCard(value) {
+    if (!value) return null; // Skip if empty (use required validation separately)
+    
+    // Remove spaces and dashes
+    const cardNumber = value.replace(/[\s-]/g, '');
+    
+    // Check if all characters are digits
+    if (!/^\d+$/.test(cardNumber)) {
+      return 'Credit card number must contain only digits';
+    }
+    
+    // Check length (13-19 digits)
+    if (cardNumber.length < 13 || cardNumber.length > 19) {
+      return 'Credit card number must be between 13 and 19 digits';
+    }
+    
+    // Luhn algorithm for card number validation
+    let sum = 0;
+    let double = false;
+    
+    for (let i = cardNumber.length - 1; i >= 0; i--) {
+      let digit = parseInt(cardNumber.charAt(i));
+      
+      if (double) {
+        digit *= 2;
+        if (digit > 9) digit -= 9;
+      }
+      
+      sum += digit;
+      double = !double;
+    }
+    
+    if (sum % 10 !== 0) {
+      return 'Please enter a valid credit card number';
+    }
+    
+    return null;
+  }
+
+  /**
+   * Validate form fields
+   * @param {Object} values - Form values
+   * @param {Object} validations - Validation rules
+   * @returns {Object} - Validation errors
+   */
+  validateForm(values, validations) {
+    const errors = {};
+    
+    Object.keys(validations).forEach(field => {
+      const value = values[field];
+      const fieldValidations = validations[field];
+      
+      if (typeof fieldValidations === 'string') {
+        // Single validation
+        const error = this[fieldValidations](value, field);
+        if (error) {
+          errors[field] = error;
+        }
+      } else if (Array.isArray(fieldValidations)) {
+        // Multiple validations
+        for (const validation of fieldValidations) {
+          let error;
+          
+          if (typeof validation === 'string') {
+            error = this[validation](value, field);
+          } else if (typeof validation === 'object') {
+            const { rule, args = [], message } = validation;
+            const validationArgs = [value, ...args, field];
+            const validationError = this[rule](...validationArgs);
+            
+            if (validationError) {
+              error = message || validationError;
+            }
+          }
+          
+          if (error) {
+            errors[field] = error;
+            break;
+          }
+        }
+      } else if (typeof fieldValidations === 'object') {
+        // Validation with args
+        const { rule, args = [], message } = fieldValidations;
+        const validationArgs = [value, ...args, field];
+        const error = this[rule](...validationArgs);
+        
+        if (error) {
+          errors[field] = message || error;
+        }
       }
     });
-
-    // Amount validations
-    const usdtAmount = parseFloat(formData.usdtAmount) || 0;
-    const phpAmount = parseFloat(formData.phpAmount) || 0;
-    const rate = parseFloat(formData.rate) || 0;
-
-    if (usdtAmount < this.validationRules.trade.minAmount) {
-      errors.usdtAmount = `USDT amount must be at least ${this.validationRules.trade.minAmount}`;
-    }
-
-    if (usdtAmount > this.validationRules.trade.maxAmount) {
-      errors.usdtAmount = `USDT amount cannot exceed ${this.validationRules.trade.maxAmount}`;
-    }
-
-    if (phpAmount <= 0) {
-      errors.phpAmount = 'PHP amount must be greater than 0';
-    }
-
-    if (rate <= 0) {
-      errors.rate = 'Exchange rate must be greater than 0';
-    }
-
-    // Balance validation for SELL transactions
-    if (transactionType === 'SELL' && formData.userBank && availableBalances) {
-      const bankBalance = availableBalances[formData.userBank] || 0;
-      if (phpAmount > bankBalance) {
-        errors.phpAmount = `Insufficient balance. Available: ₱${bankBalance.toFixed(2)}`;
-      }
-    }
-
-    // Platform USDT validation for BUY transactions
-    if (transactionType === 'BUY' && formData.platform && availableBalances.platformUSDT) {
-      const platformBalance = availableBalances.platformUSDT[formData.platform] || 0;
-      if (usdtAmount > platformBalance) {
-        errors.platform = `Insufficient USDT on platform. Available: ${platformBalance.toFixed(2)} USDT`;
-      }
-    }
-
-    // Rate validation warnings
-    if (rate > 0) {
-      const currentMarketRate = 56.25; // This should come from ExchangeRateService
-      const deviation = Math.abs((rate - currentMarketRate) / currentMarketRate) * 100;
-      
-      if (deviation > 5) {
-        warnings.push({
-          type: 'rate_deviation',
-          message: `Rate deviates ${deviation.toFixed(1)}% from market rate (₱${currentMarketRate.toFixed(2)})`
-        });
-      }
-    }
-
-    // Large transaction warning
-    if (usdtAmount > 10000) {
-      warnings.push({
-        type: 'large_transaction',
-        message: 'Large transaction amount - please verify details carefully'
-      });
-    }
-
-    return {
-      isValid: Object.keys(errors).length === 0,
-      errors,
-      warnings
-    };
-  }
-
-  // Validate user balance adjustment
-  validateBalanceAdjustment(userId, bank, newAmount, reason, currentBalances) {
-    const errors = {};
     
-    if (!userId) errors.userId = 'User is required';
-    if (!bank) errors.bank = 'Bank is required';
-    if (!reason || reason.trim().length < 10) {
-      errors.reason = 'Reason must be at least 10 characters long';
-    }
-
-    const amount = parseFloat(newAmount) || 0;
-    if (amount < 0) {
-      errors.amount = 'Balance cannot be negative';
-    }
-
-    // Check for pending transactions that might affect this balance
-    // This would need integration with transaction service
-    
-    return {
-      isValid: Object.keys(errors).length === 0,
-      errors
-    };
-  }
-
-  // Validate user deletion
-  validateUserDeletion(userId, userBalances, pendingTransactions) {
-    const errors = {};
-    const warnings = [];
-
-    // Check for non-zero balances
-    const totalBalance = Object.values(userBalances || {}).reduce((sum, balance) => sum + balance, 0);
-    if (totalBalance > 0) {
-      errors.balances = `User has non-zero balances totaling ₱${totalBalance.toFixed(2)}`;
-    }
-
-    // Check for pending transactions
-    if (pendingTransactions && pendingTransactions.length > 0) {
-      errors.transactions = `User has ${pendingTransactions.length} pending transactions`;
-    }
-
-    return {
-      isValid: Object.keys(errors).length === 0,
-      errors,
-      warnings
-    };
-  }
-
-  // Validate platform/bank deletion
-  validatePlatformDeletion(platformName, platformBalance, recentTransactions) {
-    const errors = {};
-    
-    if (platformBalance > 0) {
-      errors.balance = `Platform has non-zero balance: ${platformBalance.toFixed(2)} USDT`;
-    }
-
-    // Check for recent transactions (last 24 hours)
-    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const recentTxns = recentTransactions.filter(tx => 
-      new Date(tx.created_at) > oneDayAgo && tx.platform === platformName
-    );
-
-    if (recentTxns.length > 0) {
-      errors.recentActivity = `Platform has ${recentTxns.length} transactions in the last 24 hours`;
-    }
-
-    return {
-      isValid: Object.keys(errors).length === 0,
-      errors
-    };
-  }
-
-  // Validate system settings
-  validateSystemSettings(settings) {
-    const errors = {};
-    
-    if (settings.daily_profit_reset_time) {
-      const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
-      if (!timeRegex.test(settings.daily_profit_reset_time)) {
-        errors.daily_profit_reset_time = 'Invalid time format (HH:MM)';
-      }
-    }
-
-    if (settings.total_invested_funds !== undefined) {
-      const amount = parseFloat(settings.total_invested_funds);
-      if (isNaN(amount) || amount < 0) {
-        errors.total_invested_funds = 'Invalid investment amount';
-      }
-    }
-
-    if (settings.exchange_rate_update_interval) {
-      const interval = parseInt(settings.exchange_rate_update_interval);
-      if (isNaN(interval) || interval < 60000) { // Minimum 1 minute
-        errors.exchange_rate_update_interval = 'Update interval must be at least 1 minute';
-      }
-    }
-
-    return {
-      isValid: Object.keys(errors).length === 0,
-      errors
-    };
-  }
-
-  // Validate organization settings
-  validateOrganization(orgData) {
-    const errors = {};
-    
-    if (!orgData.name || orgData.name.trim().length < 2) {
-      errors.name = 'Organization name must be at least 2 characters';
-    }
-
-    if (!orgData.display_name || orgData.display_name.trim().length < 2) {
-      errors.display_name = 'Display name must be at least 2 characters';
-    }
-
-    // Validate name format (lowercase with underscores only)
-    if (orgData.name && !/^[a-z0-9_]+$/.test(orgData.name)) {
-      errors.name = 'Name can only contain lowercase letters, numbers, and underscores';
-    }
-
-    // Validate color formats
-    if (orgData.primary_color_light && !/^#[0-9A-Fa-f]{6}$/.test(orgData.primary_color_light)) {
-      errors.primary_color_light = 'Invalid color format';
-    }
-
-    if (orgData.primary_color_dark && !/^#[0-9A-Fa-f]{6}$/.test(orgData.primary_color_dark)) {
-      errors.primary_color_dark = 'Invalid color format';
-    }
-
-    return {
-      isValid: Object.keys(errors).length === 0,
-      errors
-    };
+    return errors;
   }
 }
 

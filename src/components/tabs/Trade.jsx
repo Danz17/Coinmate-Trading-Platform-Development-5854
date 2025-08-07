@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import SafeIcon from '../../common/SafeIcon';
+import SafeIcon from '../common/SafeIcon';
 import * as FiIcons from 'react-icons/fi';
 import { AppStateManager } from '../../services/AppStateManager';
 import { RoleManager } from '../../services/RoleManager';
@@ -50,7 +50,7 @@ const Trade = ({ currentUser }) => {
 
   useEffect(() => {
     const rate = ExchangeRateService.getCurrentRate();
-    if (rate.rate && !formData.rate) {
+    if (rate?.rate && !formData.rate) {
       setFormData(prev => ({ ...prev, rate: rate.rate.toFixed(4) }));
     }
     setExchangeRateInfo(rate);
@@ -86,8 +86,8 @@ const Trade = ({ currentUser }) => {
         setExchangeRateInfo(rate);
         
         // Auto-update rate if user hasn't manually set it
-        if (!formData.rate || formData.rate === rate.rate.toFixed(4)) {
-          setFormData(prev => ({ ...prev, rate: rate.rate.toFixed(4) }));
+        if (!formData.rate || formData.rate === rate.rate?.toFixed(4)) {
+          setFormData(prev => ({ ...prev, rate: rate.rate?.toFixed(4) || '' }));
         }
       } catch (error) {
         console.error('Error updating exchange rate:', error);
@@ -120,7 +120,7 @@ const Trade = ({ currentUser }) => {
       const { data: memory, error } = await supabase
         .from('user_trade_memory')
         .select('*')
-        .eq('user_id', currentUser.id)
+        .eq('user_id', currentUser?.id)
         .gt('expires_at', new Date().toISOString());
 
       if (error) {
@@ -162,7 +162,7 @@ const Trade = ({ currentUser }) => {
       await supabase
         .from('user_trade_memory')
         .upsert({
-          user_id: currentUser.id,
+          user_id: currentUser?.id,
           transaction_type: typeKey,
           selected_user: formData.selectedUser,
           user_bank: formData.userBank,
@@ -224,15 +224,15 @@ const Trade = ({ currentUser }) => {
   };
 
   const getAvailableUsers = () => {
-    const featureFlags = RoleManager.getFeatureFlags(currentUser.role);
-    if (featureFlags.canTradeForOthers) {
-      if (RoleManager.hasPermission(currentUser.role, 'trade_all_users')) {
+    const featureFlags = RoleManager.getFeatureFlags(currentUser?.role);
+    if (featureFlags?.canTradeForOthers) {
+      if (RoleManager.hasPermission(currentUser?.role, 'trade_all_users')) {
         return users;
-      } else if (RoleManager.hasPermission(currentUser.role, 'trade_assigned_users')) {
+      } else if (RoleManager.hasPermission(currentUser?.role, 'trade_assigned_users')) {
         return users;
       }
     }
-    return users.filter(u => u.id === currentUser.id);
+    return users.filter(u => u.id === currentUser?.id);
   };
 
   const getSelectedUserBanks = () => {
@@ -284,9 +284,9 @@ const Trade = ({ currentUser }) => {
 
     const selectedUser = users.find(u => u.name === formData.selectedUser);
     
-    if (selectedUser.id !== currentUser.id) {
-      const featureFlags = RoleManager.getFeatureFlags(currentUser.role);
-      if (!featureFlags.canTradeForOthers) {
+    if (selectedUser.id !== currentUser?.id) {
+      const featureFlags = RoleManager.getFeatureFlags(currentUser?.role);
+      if (!featureFlags?.canTradeForOthers) {
         toastManager.error('You do not have permission to trade for other users');
         return;
       }
@@ -338,7 +338,7 @@ const Trade = ({ currentUser }) => {
       // Reset form but keep rate and user selection
       setFormData({
         selectedUser: formData.selectedUser,
-        rate: ExchangeRateService.getCurrentRate().rate.toFixed(4),
+        rate: exchangeRateInfo?.rate?.toFixed(4) || '',
         usdtAmount: '',
         phpAmount: '',
         userBank: formData.userBank,
@@ -392,7 +392,7 @@ const Trade = ({ currentUser }) => {
               <div className={`w-3 h-3 rounded-full ${exchangeRateInfo.source === 'CoinGecko' ? 'bg-green-500' : 'bg-yellow-500'}`} />
               <div>
                 <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
-                  Current Rate: ₱{exchangeRateInfo.rate.toFixed(4)} per USDT
+                  Current Rate: ₱{exchangeRateInfo.rate?.toFixed(4) || '0.0000'} per USDT
                 </p>
                 <p className="text-xs text-blue-700 dark:text-blue-300">
                   Source: {exchangeRateInfo.source} • Updated: {exchangeRateInfo.lastUpdate ? new Date(exchangeRateInfo.lastUpdate).toLocaleTimeString() : 'N/A'}
@@ -400,7 +400,7 @@ const Trade = ({ currentUser }) => {
               </div>
             </div>
             <button
-              onClick={() => handleRateChange(exchangeRateInfo.rate.toFixed(4))}
+              onClick={() => handleRateChange(exchangeRateInfo.rate?.toFixed(4) || '')}
               className="btn-secondary text-sm flex items-center space-x-1"
             >
               <SafeIcon icon={FiRefreshCw} className="w-3 h-3" />
@@ -411,7 +411,7 @@ const Trade = ({ currentUser }) => {
       )}
 
       {/* Permission Info */}
-      {availableUsers.length === 1 && availableUsers[0].id === currentUser.id && (
+      {availableUsers.length === 1 && availableUsers[0].id === currentUser?.id && (
         <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
           <p className="text-sm text-blue-700 dark:text-blue-300">
             <strong>Trading Permissions:</strong> You can only trade for your own account.
@@ -531,7 +531,7 @@ const Trade = ({ currentUser }) => {
             <div className="flex items-center space-x-4 mt-2 text-sm text-gray-500 dark:text-gray-400">
               <span>Last Buy: ₱{lastRates.buy.toFixed(4)}</span>
               <span>Last Sell: ₱{lastRates.sell.toFixed(4)}</span>
-              <span>Current: ₱{exchangeRateInfo?.rate.toFixed(4) || '0.0000'}</span>
+              <span>Current: ₱{exchangeRateInfo?.rate?.toFixed(4) || '0.0000'}</span>
             </div>
           </div>
 

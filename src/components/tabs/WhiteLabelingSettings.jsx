@@ -1,716 +1,456 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import SafeIcon from '../../common/SafeIcon';
 import * as FiIcons from 'react-icons/fi';
-import { OrganizationManager } from '../../services/OrganizationManager';
+import SafeIcon from '../../common/SafeIcon';
 import { AppStateManager } from '../../services/AppStateManager';
-import { toastManager } from '../common/Toast';
-import SystemSettings from './SystemSettings';
-import RoleManagement from '../admin/RoleManagement';
-import supabase from '../../lib/supabase';
+import { SupabaseService } from '../../services/SupabaseService';
+import { toast } from 'react-toastify';
+import Tooltip from '../common/Tooltip';
 
-const { FiUpload, FiSave, FiPlus, FiTrash2, FiEdit3, FiCheck, FiX, FiGlobe, FiBriefcase, FiRefreshCw, FiSettings, FiShield } = FiIcons;
-
-const WhiteLabelingSettings = ({ currentUser }) => {
+const WhiteLabelingSettings = () => {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
   const [organizations, setOrganizations] = useState([]);
   const [selectedOrganization, setSelectedOrganization] = useState(null);
-  const [editMode, setEditMode] = useState(false);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [uploadingLogo, setUploadingLogo] = useState(false);
-  const [uploadingFavicon, setUploadingFavicon] = useState(false);
-  const [activeSubTab, setActiveSubTab] = useState('branding');
-  const [newOrgData, setNewOrgData] = useState({
-    name: '',
-    display_name: '',
+  const [formData, setFormData] = useState({
+    custom_domain: '',
+    custom_login_page: false,
+    custom_css: '',
     logo_url: '',
     favicon_url: '',
-    primary_color_light: '#2563eb',
-    primary_color_dark: '#3b82f6',
-    features: {
-      trade: true,
-      eod: true,
-      hr: true,
-      analytics: true
-    }
+    company_name: '',
+    contact_email: '',
+    support_url: '',
+    terms_url: '',
+    privacy_url: '',
+    enable_custom_emails: false
   });
-  const [editedOrgData, setEditedOrgData] = useState({});
-  const [organizationAdmins, setOrganizationAdmins] = useState([]);
-  const [allUsers, setAllUsers] = useState([]);
-  const [selectedAdminToAdd, setSelectedAdminToAdd] = useState('');
-
+  
   useEffect(() => {
+    const loadData = async () => {
+      try {
+        const user = AppStateManager.getCurrentUser();
+        setCurrentUser(user);
+        
+        if (user.role !== 'super_admin') {
+          setLoading(false);
+          return;
+        }
+        
+        // Load all organizations
+        const orgs = await SupabaseService.getAllOrganizations();
+        setOrganizations(orgs);
+        
+        if (orgs.length > 0) {
+          // Select first organization by default
+          setSelectedOrganization(orgs[0]);
+          
+          // Load white label settings for first organization
+          const whiteLabel = await SupabaseService.getWhiteLabelSettings(orgs[0].id);
+          
+          if (whiteLabel) {
+            setFormData({
+              custom_domain: whiteLabel.custom_domain || '',
+              custom_login_page: whiteLabel.custom_login_page || false,
+              custom_css: whiteLabel.custom_css || '',
+              logo_url: whiteLabel.logo_url || orgs[0].logo_url || '',
+              favicon_url: whiteLabel.favicon_url || '',
+              company_name: whiteLabel.company_name || orgs[0].name || '',
+              contact_email: whiteLabel.contact_email || '',
+              support_url: whiteLabel.support_url || '',
+              terms_url: whiteLabel.terms_url || '',
+              privacy_url: whiteLabel.privacy_url || '',
+              enable_custom_emails: whiteLabel.enable_custom_emails || false
+            });
+          } else {
+            // Initialize with organization defaults
+            setFormData({
+              ...formData,
+              logo_url: orgs[0].logo_url || '',
+              company_name: orgs[0].name || ''
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Error loading data:', error);
+        toast.error('Failed to load white labeling data');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
     loadData();
   }, []);
 
-  const loadData = async () => {
-    try {
-      setIsLoading(true);
-      // Load organizations
-      await OrganizationManager.initialize();
-      const orgs = await OrganizationManager.loadOrganizations();
-      setOrganizations(orgs);
-
-      // Set current organization as selected
-      const currentOrg = OrganizationManager.getCurrentOrganization();
-      if (currentOrg) {
-        setSelectedOrganization(currentOrg);
-        setEditedOrgData({ ...currentOrg });
-        loadOrganizationAdmins(currentOrg.id);
-      }
-
-      // Load all users for admin assignment
-      const users = await AppStateManager.getUsers();
-      setAllUsers(users);
-    } catch (error) {
-      console.error('Error loading white labeling settings:', error);
-      toastManager.error('Failed to load organizations');
-    } finally {
-      setIsLoading(false);
-    }
+  const handleInputChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setFormData({
+      ...formData,
+      [name]: type === 'checkbox' ? checked : value
+    });
   };
 
-  const loadOrganizationAdmins = async (organizationId) => {
+  const handleOrganizationChange = async (e) => {
+    const orgId = e.target.value;
+    const org = organizations.find(o => o.id === orgId);
+    setSelectedOrganization(org);
+    
     try {
-      const admins = await OrganizationManager.getOrganizationAdmins(organizationId);
-      setOrganizationAdmins(admins);
-    } catch (error) {
-      console.error('Error loading organization admins:', error);
-    }
-  };
-
-  const handleOrganizationSelect = async (orgId) => {
-    const organization = organizations.find(org => org.id === orgId);
-    if (organization) {
-      setSelectedOrganization(organization);
-      setEditedOrgData({ ...organization });
-      await loadOrganizationAdmins(organization.id);
-      setActiveSubTab('branding'); // Reset to branding tab when switching org
-    }
-  };
-
-  const handleFileUpload = async (file, type, targetState) => {
-    if (!file) return;
-
-    const setUploading = type === 'favicon' ? setUploadingFavicon : setUploadingLogo;
-    setUploading(true);
-
-    try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${type}_${Date.now()}.${fileExt}`;
-      const filePath = `organizations/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('assets')
-        .upload(filePath, file);
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('assets')
-        .getPublicUrl(filePath);
-
-      if (targetState === 'new') {
-        setNewOrgData(prev => ({ ...prev, [`${type}_url`]: publicUrl }));
+      setLoading(true);
+      
+      // Load white label settings for selected organization
+      const whiteLabel = await SupabaseService.getWhiteLabelSettings(orgId);
+      
+      if (whiteLabel) {
+        setFormData({
+          custom_domain: whiteLabel.custom_domain || '',
+          custom_login_page: whiteLabel.custom_login_page || false,
+          custom_css: whiteLabel.custom_css || '',
+          logo_url: whiteLabel.logo_url || org.logo_url || '',
+          favicon_url: whiteLabel.favicon_url || '',
+          company_name: whiteLabel.company_name || org.name || '',
+          contact_email: whiteLabel.contact_email || '',
+          support_url: whiteLabel.support_url || '',
+          terms_url: whiteLabel.terms_url || '',
+          privacy_url: whiteLabel.privacy_url || '',
+          enable_custom_emails: whiteLabel.enable_custom_emails || false
+        });
       } else {
-        setEditedOrgData(prev => ({ ...prev, [`${type}_url`]: publicUrl }));
+        // Initialize with organization defaults
+        setFormData({
+          custom_domain: '',
+          custom_login_page: false,
+          custom_css: '',
+          logo_url: org.logo_url || '',
+          favicon_url: '',
+          company_name: org.name || '',
+          contact_email: '',
+          support_url: '',
+          terms_url: '',
+          privacy_url: '',
+          enable_custom_emails: false
+        });
       }
-
-      toastManager.success(`${type.charAt(0).toUpperCase() + type.slice(1)} uploaded successfully`);
     } catch (error) {
-      console.error(`Error uploading ${type}:`, error);
-      toastManager.error(`Failed to upload ${type}`);
+      console.error('Error loading white label settings:', error);
+      toast.error('Failed to load white label settings');
     } finally {
-      setUploading(false);
+      setLoading(false);
     }
   };
 
-  const handleSaveOrganization = async () => {
-    if (!selectedOrganization) return;
-
-    setIsSaving(true);
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    
     try {
-      await OrganizationManager.updateOrganization(
-        selectedOrganization.id,
-        editedOrgData
-      );
-      setEditMode(false);
-      await loadData();
-    } catch (error) {
-      console.error('Error saving organization:', error);
-      toastManager.error('Failed to update organization');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleCreateOrganization = async () => {
-    if (!newOrgData.name || !newOrgData.display_name) {
-      toastManager.error('Organization name and display name are required');
-      return;
-    }
-
-    setIsSaving(true);
-    try {
-      await OrganizationManager.createOrganization(newOrgData);
-      setShowAddModal(false);
-      // Reset form
-      setNewOrgData({
-        name: '',
-        display_name: '',
-        logo_url: '',
-        favicon_url: '',
-        primary_color_light: '#2563eb',
-        primary_color_dark: '#3b82f6',
-        features: {
-          trade: true,
-          eod: true,
-          hr: true,
-          analytics: true
-        }
+      if (!selectedOrganization) {
+        toast.error('No organization selected');
+        return;
+      }
+      
+      await SupabaseService.saveWhiteLabelSettings(selectedOrganization.id, formData);
+      
+      // Create system log
+      await SupabaseService.createSystemLog({
+        type: 'white_label_update',
+        user: currentUser.name,
+        reason: 'Updated white labeling settings',
+        organization_id: selectedOrganization.id
       });
-      await loadData();
+      
+      toast.success('White labeling settings updated successfully');
     } catch (error) {
-      console.error('Error creating organization:', error);
-      toastManager.error('Failed to create organization');
+      console.error('Error updating white labeling:', error);
+      toast.error('Failed to update white labeling settings');
     } finally {
-      setIsSaving(false);
+      setSaving(false);
     }
   };
 
-  const handleDeleteOrganization = async () => {
-    if (!selectedOrganization) return;
-
-    setIsSaving(true);
-    try {
-      await OrganizationManager.deleteOrganization(selectedOrganization.id);
-      setShowDeleteModal(false);
-      await loadData();
-    } catch (error) {
-      console.error('Error deleting organization:', error);
-      toastManager.error(`Failed to delete organization: ${error.message}`);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleSetDefaultOrganization = async () => {
-    if (!selectedOrganization) return;
-
-    try {
-      await OrganizationManager.setDefaultOrganization(selectedOrganization.id);
-      await loadData();
-    } catch (error) {
-      console.error('Error setting default organization:', error);
-      toastManager.error('Failed to set default organization');
-    }
-  };
-
-  const handleAddAdmin = async () => {
-    if (!selectedOrganization || !selectedAdminToAdd) return;
-
-    try {
-      await OrganizationManager.addOrganizationAdmin(selectedOrganization.id, selectedAdminToAdd);
-      await loadOrganizationAdmins(selectedOrganization.id);
-      setSelectedAdminToAdd('');
-    } catch (error) {
-      console.error('Error adding organization admin:', error);
-      toastManager.error('Failed to add admin');
-    }
-  };
-
-  const handleRemoveAdmin = async (userId) => {
-    if (!selectedOrganization) return;
-
-    try {
-      await OrganizationManager.removeOrganizationAdmin(selectedOrganization.id, userId);
-      await loadOrganizationAdmins(selectedOrganization.id);
-    } catch (error) {
-      console.error('Error removing organization admin:', error);
-      toastManager.error('Failed to remove admin');
-    }
-  };
-
-  // Check permissions - only super admins can manage organizations, admins can only view/edit settings for their org
-  const canManageOrganizations = currentUser.role === 'super_admin';
-  const canEditSettings = ['super_admin', 'admin'].includes(currentUser.role);
-
-  if (!canEditSettings) {
+  if (loading) {
     return (
-      <div className="p-6 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg text-center">
-        <SafeIcon icon={FiX} className="w-12 h-12 text-yellow-600 mx-auto mb-4" />
-        <h2 className="text-xl font-semibold text-yellow-800 dark:text-yellow-200 mb-2">Access Restricted</h2>
-        <p className="text-yellow-700 dark:text-yellow-300">
-          You don't have permission to access organization settings.
+      <div className="flex items-center justify-center h-full">
+        <SafeIcon icon={FiIcons.FiLoader} className="animate-spin text-3xl text-blue-500" />
+      </div>
+    );
+  }
+
+  if (!currentUser || currentUser.role !== 'super_admin') {
+    return (
+      <div className="flex flex-col items-center justify-center h-full p-8">
+        <SafeIcon icon={FiIcons.FiLock} className="text-5xl text-gray-400 mb-4" />
+        <h2 className="text-2xl font-bold text-gray-700 mb-2">Access Restricted</h2>
+        <p className="text-gray-500 text-center max-w-md">
+          You don't have permission to access the White Labeling settings.
+          This feature is available only to Super Administrators.
         </p>
       </div>
     );
   }
 
-  if (isLoading) {
-    return (
-      <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-600"></div>
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-            Organization Settings
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400">
-            {canManageOrganizations ? 'Manage organizations and their settings' : 'Configure your organization settings'}
-          </p>
-        </div>
-        {canManageOrganizations && (
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="btn-primary flex items-center space-x-2"
-          >
-            <SafeIcon icon={FiPlus} className="w-4 h-4" />
-            <span>Add Organization</span>
-          </button>
-        )}
+    <div className="container mx-auto px-4 py-6">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-gray-800">White Labeling Settings</h1>
+        <p className="text-gray-600">Customize the appearance for client organizations</p>
       </div>
 
-      {/* Organization Selection (only for super admins) */}
-      {canManageOrganizations && (
-        <div className="card p-6">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-            Select Organization
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {organizations.map((org) => (
-              <div
-                key={org.id}
-                onClick={() => handleOrganizationSelect(org.id)}
-                className={`p-4 border rounded-lg cursor-pointer transition-all ${
-                  selectedOrganization?.id === org.id
-                    ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
-                    : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-semibold text-gray-900 dark:text-white">
-                    {org.display_name || org.name}
-                  </h3>
-                  {org.is_default && (
-                    <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-200 text-xs rounded-full">
-                      Default
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center space-x-3">
-                  {org.logo_url ? (
-                    <img
-                      src={org.logo_url}
-                      alt={org.name}
-                      className="w-8 h-8 object-contain"
-                    />
-                  ) : (
-                    <SafeIcon icon={FiBriefcase} className="w-5 h-5 text-gray-400" />
-                  )}
-                  <span className="text-sm text-gray-500 dark:text-gray-400">
-                    {org.name}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Selected Organization Settings */}
-      {selectedOrganization && (
-        <div className="card">
-          {/* Sub-navigation */}
-          <div className="border-b border-gray-200 dark:border-gray-700">
-            <nav className="flex space-x-6 px-6">
-              <button
-                onClick={() => setActiveSubTab('branding')}
-                className={`py-4 border-b-2 font-medium text-sm focus:outline-none ${
-                  activeSubTab === 'branding'
-                    ? 'border-primary-600 text-primary-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                <div className="flex items-center">
-                  <SafeIcon icon={FiGlobe} className="w-4 h-4 mr-2" />
-                  <span>Branding</span>
-                </div>
-              </button>
-              
-              <button
-                onClick={() => setActiveSubTab('system')}
-                className={`py-4 border-b-2 font-medium text-sm focus:outline-none ${
-                  activeSubTab === 'system'
-                    ? 'border-primary-600 text-primary-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                <div className="flex items-center">
-                  <SafeIcon icon={FiSettings} className="w-4 h-4 mr-2" />
-                  <span>System Settings</span>
-                </div>
-              </button>
-
-              {canEditSettings && (
-                <button
-                  onClick={() => setActiveSubTab('roles')}
-                  className={`py-4 border-b-2 font-medium text-sm focus:outline-none ${
-                    activeSubTab === 'roles'
-                      ? 'border-primary-600 text-primary-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  <div className="flex items-center">
-                    <SafeIcon icon={FiShield} className="w-4 h-4 mr-2" />
-                    <span>Role Management</span>
-                  </div>
-                </button>
-              )}
-            </nav>
-          </div>
-
-          {/* Tab Content */}
-          <div className="p-6">
-            {activeSubTab === 'branding' && (
-              <div>
-                <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                    {editMode ? 'Edit Organization' : 'Organization Branding'}
-                  </h2>
-                  <div className="flex items-center space-x-3">
-                    {!editMode ? (
-                      <>
-                        {canManageOrganizations && !selectedOrganization.is_default && (
-                          <button
-                            onClick={handleSetDefaultOrganization}
-                            className="btn-secondary text-sm"
-                          >
-                            Set as Default
-                          </button>
-                        )}
-                        {canEditSettings && (
-                          <button
-                            onClick={() => setEditMode(true)}
-                            className="btn-secondary flex items-center space-x-2 text-sm"
-                          >
-                            <SafeIcon icon={FiEdit3} className="w-4 h-4" />
-                            <span>Edit</span>
-                          </button>
-                        )}
-                        {canManageOrganizations && !selectedOrganization.is_default && (
-                          <button
-                            onClick={() => setShowDeleteModal(true)}
-                            className="btn-danger text-sm"
-                          >
-                            Delete
-                          </button>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          onClick={handleSaveOrganization}
-                          disabled={isSaving}
-                          className="btn-primary flex items-center space-x-2 text-sm"
-                        >
-                          <SafeIcon icon={isSaving ? FiRefreshCw : FiSave} className={`w-4 h-4 ${isSaving ? 'animate-spin' : ''}`} />
-                          <span>{isSaving ? 'Saving...' : 'Save Changes'}</span>
-                        </button>
-                        <button
-                          onClick={() => {
-                            setEditMode(false);
-                            setEditedOrgData({ ...selectedOrganization });
-                          }}
-                          className="btn-secondary text-sm"
-                          disabled={isSaving}
-                        >
-                          Cancel
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {/* Render branding form - same as before but simplified */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* Basic Information */}
-                  <div>
-                    <h3 className="text-md font-medium text-gray-900 dark:text-white mb-4">
-                      Basic Information
-                    </h3>
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Organization ID
-                        </label>
-                        <input
-                          type="text"
-                          value={selectedOrganization.name}
-                          className="input-field bg-gray-100 dark:bg-gray-700"
-                          disabled
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Display Name
-                        </label>
-                        <input
-                          type="text"
-                          value={editMode ? editedOrgData.display_name : selectedOrganization.display_name}
-                          onChange={(e) => setEditedOrgData(prev => ({ ...prev, display_name: e.target.value }))}
-                          className="input-field"
-                          disabled={!editMode}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Status
-                        </label>
-                        <div className="flex items-center space-x-2">
-                          <span className={`inline-block w-3 h-3 rounded-full ${selectedOrganization.is_active ? 'bg-green-500' : 'bg-red-500'}`}></span>
-                          <span className="text-gray-700 dark:text-gray-300">
-                            {selectedOrganization.is_active ? 'Active' : 'Inactive'}
-                          </span>
-                          {editMode && (
-                            <label className="relative inline-flex items-center cursor-pointer ml-2">
-                              <input
-                                type="checkbox"
-                                checked={editedOrgData.is_active}
-                                onChange={() => setEditedOrgData(prev => ({ ...prev, is_active: !prev.is_active }))}
-                                className="sr-only peer"
-                              />
-                              <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
-                            </label>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Branding */}
-                  <div>
-                    <h3 className="text-md font-medium text-gray-900 dark:text-white mb-4">
-                      Branding
-                    </h3>
-                    <div className="space-y-4">
-                      {/* Logo */}
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Logo
-                        </label>
-                        <div className="flex items-center space-x-4">
-                          {(editMode ? editedOrgData.logo_url : selectedOrganization.logo_url) ? (
-                            <img
-                              src={editMode ? editedOrgData.logo_url : selectedOrganization.logo_url}
-                              alt="Logo"
-                              className="h-12 max-w-48 object-contain bg-gray-100 dark:bg-gray-800 p-1 rounded"
-                            />
-                          ) : (
-                            <div className="h-12 w-48 flex items-center justify-center bg-gray-100 dark:bg-gray-800 rounded">
-                              <span className="text-sm text-gray-500 dark:text-gray-400">No logo</span>
-                            </div>
-                          )}
-                          {editMode && (
-                            <label className="btn-secondary cursor-pointer flex items-center space-x-2">
-                              <SafeIcon icon={uploadingLogo ? FiRefreshCw : FiUpload} className={`w-4 h-4 ${uploadingLogo ? 'animate-spin' : ''}`} />
-                              <span>{uploadingLogo ? 'Uploading...' : 'Upload Logo'}</span>
-                              <input
-                                type="file"
-                                accept=".png,.jpg,.jpeg,.svg"
-                                onChange={(e) => handleFileUpload(e.target.files[0], 'logo', 'edit')}
-                                className="hidden"
-                                disabled={uploadingLogo}
-                              />
-                            </label>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Colors */}
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Primary Color (Light Mode)
-                        </label>
-                        <div className="flex items-center space-x-4">
-                          <input
-                            type="color"
-                            value={editMode ? editedOrgData.primary_color_light : selectedOrganization.primary_color_light}
-                            onChange={(e) => setEditedOrgData(prev => ({ ...prev, primary_color_light: e.target.value }))}
-                            className="w-12 h-12 rounded border border-gray-300 dark:border-gray-600 cursor-pointer"
-                            disabled={!editMode}
-                          />
-                          <input
-                            type="text"
-                            value={editMode ? editedOrgData.primary_color_light : selectedOrganization.primary_color_light}
-                            onChange={(e) => setEditedOrgData(prev => ({ ...prev, primary_color_light: e.target.value }))}
-                            className="input-field font-mono"
-                            disabled={!editMode}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {activeSubTab === 'system' && (
-              <SystemSettings currentUser={currentUser} />
-            )}
-
-            {activeSubTab === 'roles' && canEditSettings && (
-              <RoleManagement currentUser={currentUser} />
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Add Organization Modal - same as before */}
-      {showAddModal && canManageOrganizations && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white dark:bg-dark-surface rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden"
+      <div className="bg-white rounded-lg shadow-md overflow-hidden">
+        <div className="p-6 border-b border-gray-200">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Select Organization</label>
+          <select
+            value={selectedOrganization?.id || ''}
+            onChange={handleOrganizationChange}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            disabled={organizations.length === 0}
           >
-            <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                Add New Organization
-              </h2>
-              <button
-                onClick={() => setShowAddModal(false)}
-                className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
-              >
-                <SafeIcon icon={FiX} className="w-5 h-5 text-gray-500" />
-              </button>
-            </div>
-            <div className="p-6 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Organization ID *
+            {organizations.length === 0 && (
+              <option value="">No organizations available</option>
+            )}
+            {organizations.map(org => (
+              <option key={org.id} value={org.id}>
+                {org.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {selectedOrganization && (
+          <form onSubmit={handleSubmit} className="p-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <h2 className="text-lg font-semibold mb-4">Domain & Branding</h2>
+                
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Custom Domain
+                    <Tooltip content="The custom domain for the organization's instance (e.g., trading.clientname.com)">
+                      <SafeIcon icon={FiIcons.FiInfo} className="ml-1 text-gray-400" />
+                    </Tooltip>
+                  </label>
+                  <div className="flex">
+                    <input
+                      type="text"
+                      name="custom_domain"
+                      value={formData.custom_domain}
+                      onChange={handleInputChange}
+                      placeholder="trading.clientname.com"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Domain must be configured in DNS and SSL must be set up.
+                  </p>
+                </div>
+                
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Company Name
                   </label>
                   <input
                     type="text"
-                    value={newOrgData.name}
-                    onChange={(e) => setNewOrgData(prev => ({ ...prev, name: e.target.value }))}
-                    className="input-field"
-                    placeholder="lowercase_with_underscores"
-                    required
+                    name="company_name"
+                    value={formData.company_name}
+                    onChange={handleInputChange}
+                    placeholder="Client Company Name"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Logo URL
+                  </label>
+                  <input
+                    type="url"
+                    name="logo_url"
+                    value={formData.logo_url}
+                    onChange={handleInputChange}
+                    placeholder="https://example.com/logo.png"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                
+                {formData.logo_url && (
+                  <div className="mb-4 p-4 border border-dashed border-gray-300 rounded-md">
+                    <p className="text-sm font-medium text-gray-700 mb-2">Logo Preview</p>
+                    <div className="flex justify-center bg-white p-4 rounded">
+                      <img 
+                        src={formData.logo_url} 
+                        alt="Organization Logo" 
+                        className="max-h-16 object-contain"
+                        onError={(e) => {
+                          e.target.onerror = null;
+                          e.target.src = 'https://via.placeholder.com/200x50?text=Invalid+Image+URL';
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+                
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Favicon URL
+                  </label>
+                  <input
+                    type="url"
+                    name="favicon_url"
+                    value={formData.favicon_url}
+                    onChange={handleInputChange}
+                    placeholder="https://example.com/favicon.ico"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Used as internal identifier. Use lowercase with underscores.
+                    Recommended size: 32x32px, format: .ico, .png
                   </p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Display Name *
-                  </label>
-                  <input
-                    type="text"
-                    value={newOrgData.display_name}
-                    onChange={(e) => setNewOrgData(prev => ({ ...prev, display_name: e.target.value }))}
-                    className="input-field"
-                    placeholder="Organization Display Name"
-                    required
-                  />
                 </div>
               </div>
               
-              <div className="flex justify-end space-x-3 pt-4">
-                <button
-                  onClick={() => setShowAddModal(false)}
-                  className="btn-secondary"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleCreateOrganization}
-                  disabled={isSaving || !newOrgData.name || !newOrgData.display_name}
-                  className="btn-primary flex items-center space-x-2"
-                >
-                  <SafeIcon icon={isSaving ? FiRefreshCw : FiSave} className={`w-4 h-4 ${isSaving ? 'animate-spin' : ''}`} />
-                  <span>{isSaving ? 'Creating...' : 'Create Organization'}</span>
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        </div>
-      )}
-
-      {/* Delete Organization Modal - same as before */}
-      {showDeleteModal && selectedOrganization && canManageOrganizations && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white dark:bg-dark-surface rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden"
-          >
-            <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                Delete Organization
-              </h2>
-              <button
-                onClick={() => setShowDeleteModal(false)}
-                className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
-              >
-                <SafeIcon icon={FiX} className="w-5 h-5 text-gray-500" />
-              </button>
-            </div>
-            <div className="p-6 space-y-4">
-              <div className="flex items-center space-x-3 bg-red-50 dark:bg-red-900/20 p-4 rounded-lg">
-                <SafeIcon icon={FiTrash2} className="w-6 h-6 text-red-600" />
-                <div>
-                  <h3 className="font-medium text-red-800 dark:text-red-300">
-                    Confirm Deletion
-                  </h3>
-                  <p className="text-sm text-red-700 dark:text-red-400">
-                    Are you sure you want to delete organization "{selectedOrganization.display_name || selectedOrganization.name}"?
-                  </p>
+              <div>
+                <h2 className="text-lg font-semibold mb-4">Customization Options</h2>
+                
+                <div className="mb-4 flex items-center">
+                  <input
+                    type="checkbox"
+                    id="custom_login_page"
+                    name="custom_login_page"
+                    checked={formData.custom_login_page}
+                    onChange={handleInputChange}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                  <label htmlFor="custom_login_page" className="ml-2 block text-sm text-gray-700">
+                    Enable Custom Login Page
+                    <Tooltip content="Replace the default login page with a custom branded version">
+                      <SafeIcon icon={FiIcons.FiInfo} className="ml-1 text-gray-400" />
+                    </Tooltip>
+                  </label>
+                </div>
+                
+                <div className="mb-4 flex items-center">
+                  <input
+                    type="checkbox"
+                    id="enable_custom_emails"
+                    name="enable_custom_emails"
+                    checked={formData.enable_custom_emails}
+                    onChange={handleInputChange}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                  <label htmlFor="enable_custom_emails" className="ml-2 block text-sm text-gray-700">
+                    Enable Custom Email Templates
+                    <Tooltip content="Use custom branded email templates for notifications">
+                      <SafeIcon icon={FiIcons.FiInfo} className="ml-1 text-gray-400" />
+                    </Tooltip>
+                  </label>
+                </div>
+                
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Contact Email
+                  </label>
+                  <input
+                    type="email"
+                    name="contact_email"
+                    value={formData.contact_email}
+                    onChange={handleInputChange}
+                    placeholder="support@clientname.com"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Support URL
+                  </label>
+                  <input
+                    type="url"
+                    name="support_url"
+                    value={formData.support_url}
+                    onChange={handleInputChange}
+                    placeholder="https://help.clientname.com"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Terms of Service URL
+                  </label>
+                  <input
+                    type="url"
+                    name="terms_url"
+                    value={formData.terms_url}
+                    onChange={handleInputChange}
+                    placeholder="https://clientname.com/terms"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Privacy Policy URL
+                  </label>
+                  <input
+                    type="url"
+                    name="privacy_url"
+                    value={formData.privacy_url}
+                    onChange={handleInputChange}
+                    placeholder="https://clientname.com/privacy"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
                 </div>
               </div>
-              <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg">
-                <p className="text-gray-700 dark:text-gray-300 text-sm">
-                  This action cannot be undone. All data associated with this organization will be permanently deleted.
+            </div>
+            
+            <div className="mt-6">
+              <h2 className="text-lg font-semibold mb-4">Advanced Customization</h2>
+              
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Custom CSS
+                  <Tooltip content="Add custom CSS to override default styling">
+                    <SafeIcon icon={FiIcons.FiInfo} className="ml-1 text-gray-400" />
+                  </Tooltip>
+                </label>
+                <textarea
+                  name="custom_css"
+                  value={formData.custom_css}
+                  onChange={handleInputChange}
+                  rows={6}
+                  placeholder=":root { --primary-color: #ff0000; }\n.header { background-color: #000000; }"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Custom CSS will be injected into the application. Use with caution.
                 </p>
               </div>
-              <div className="flex justify-end space-x-3 pt-4">
-                <button
-                  onClick={() => setShowDeleteModal(false)}
-                  className="btn-secondary"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleDeleteOrganization}
-                  disabled={isSaving || selectedOrganization.is_default}
-                  className="btn-danger flex items-center space-x-2"
-                >
-                  <SafeIcon icon={isSaving ? FiRefreshCw : FiTrash2} className={`w-4 h-4 ${isSaving ? 'animate-spin' : ''}`} />
-                  <span>{isSaving ? 'Deleting...' : 'Delete Organization'}</span>
-                </button>
-              </div>
-              {selectedOrganization.is_default && (
-                <div className="bg-yellow-50 dark:bg-yellow-900/20 p-3 rounded-lg text-sm text-yellow-700 dark:text-yellow-300 mt-2">
-                  <p>
-                    <strong>Note:</strong> The default organization cannot be deleted.
-                  </p>
-                </div>
-              )}
             </div>
-          </motion.div>
-        </div>
-      )}
+            
+            <div className="mt-6 flex justify-end">
+              <motion.button
+                type="submit"
+                disabled={saving || !selectedOrganization}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center"
+              >
+                {saving ? (
+                  <>
+                    <SafeIcon icon={FiIcons.FiLoader} className="animate-spin mr-2" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <SafeIcon icon={FiIcons.FiSave} className="mr-2" />
+                    Save White Label Settings
+                  </>
+                )}
+              </motion.button>
+            </div>
+          </form>
+        )}
+      </div>
     </div>
   );
 };
