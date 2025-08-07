@@ -2,7 +2,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import * as FiIcons from 'react-icons/fi';
 import { RoleManager } from '../../services/RoleManager';
-import SafeIcon from '../../common/SafeIcon';
+import SafeIcon from '@/components/common/SafeIcon';
 
 /**
  * Role Badge Component

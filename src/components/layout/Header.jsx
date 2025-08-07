@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import * as FiIcons from 'react-icons/fi';
-import SafeIcon from '../../common/SafeIcon';
+import SafeIcon from '@/components/common/SafeIcon';
 import RoleBadge from '../common/RoleBadge';
 
 const Header = ({ onLogout, user, organization }) => {

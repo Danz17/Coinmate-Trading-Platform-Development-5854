@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import SafeIcon from '../../common/SafeIcon';
+import SafeIcon from '@/components/common/SafeIcon';
 import * as FiIcons from 'react-icons/fi';
 import { AppStateManager } from '../../services/AppStateManager';
 import { RoleManager } from '../../services/RoleManager';
-import { toastManager } from '../common/Toast';
+import { toastManager } from '@/components/common/Toast';
 import WhiteLabelingSettings from './WhiteLabelingSettings';
 
 const { FiUsers, FiDatabase, FiPlus, FiTrash2, FiEdit3, FiX, FiSave, FiCheck, FiDollarSign, FiGlobe } = FiIcons;

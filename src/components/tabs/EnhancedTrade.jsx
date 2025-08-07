@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import SafeIcon from '../../common/SafeIcon';
+import SafeIcon from '@/components/common/SafeIcon';
 import * as FiIcons from 'react-icons/fi';
 import { AppStateManager } from '../../services/AppStateManager';
 import { RoleManager } from '../../services/RoleManager';
 import { ExchangeRateService } from '../../services/ExchangeRateService';
 import { ValidationService } from '../../services/ValidationService';
 import { NotificationService } from '../../services/NotificationService';
-import { toastManager } from '../common/Toast';
+import { toastManager } from '@/components/common/Toast';
 
 const { FiDollarSign, FiTrendingUp, FiTrendingDown, FiSend, FiCheck, FiAlertTriangle, FiRefreshCw, FiInfo, FiShield } = FiIcons;
 
