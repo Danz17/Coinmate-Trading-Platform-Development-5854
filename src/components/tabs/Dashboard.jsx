@@ -4,7 +4,7 @@ import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 import { AppStateManager } from '../../services/AppStateManager';
 import * as FiIcons from 'react-icons/fi';
-import SafeIcon from '../common/SafeIcon';
+import SafeIcon from '@/components/common/SafeIcon';
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 

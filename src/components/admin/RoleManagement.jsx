@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import SafeIcon from '../../common/SafeIcon';
+import SafeIcon from '@/components/common/SafeIcon';
 import * as FiIcons from 'react-icons/fi';
 import RoleBadge from '../common/RoleBadge';
 import { RoleManager } from '../../services/RoleManager';
 import { AppStateManager } from '../../services/AppStateManager';
-import { toastManager } from '../common/Toast';
+import { toastManager } from '@/components/common/Toast';
 
 const { FiUsers, FiShield, FiCheck, FiX, FiInfo, FiEdit3, FiSave } = FiIcons;
 

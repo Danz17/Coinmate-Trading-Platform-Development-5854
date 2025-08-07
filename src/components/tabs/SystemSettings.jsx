@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import SafeIcon from '../../common/SafeIcon';
+import SafeIcon from '@/components/common/SafeIcon';
 import * as FiIcons from 'react-icons/fi';
-import { toastManager } from '../common/Toast';
+import { toastManager } from '@/components/common/Toast';
 import { AppStateManager } from '../../services/AppStateManager';
 
 const { FiSave, FiClock, FiDollarSign, FiSettings, FiRefreshCw, FiGlobe, FiBell } = FiIcons;

@@ -4,7 +4,7 @@ import PropTypes from 'prop-types';
 import { motion } from 'framer-motion';
 import * as FiIcons from 'react-icons/fi';
 import { AppStateManager } from '../../services/AppStateManager';
-import SafeIcon from '../common/SafeIcon';
+import SafeIcon from '@/components/common/SafeIcon';
 
 const TabNavigation = ({ featureFlags }) => {
   const location = useLocation();

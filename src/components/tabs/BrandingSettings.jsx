@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import * as FiIcons from 'react-icons/fi';
-import SafeIcon from '../../common/SafeIcon';
+import SafeIcon from '@/components/common/SafeIcon';
 import { AppStateManager } from '../../services/AppStateManager';
 import { SupabaseService } from '../../services/SupabaseService';
 import { toast } from 'react-toastify';
